@@ -1,0 +1,490 @@
+#!/usr/bin/env python3
+"""Local Japanese name-grid calculator.
+
+The program keeps character data outside the code:
+  - kanji/kana strokes: KanjiVG stroke-path data
+  - kanji readings/meanings: KANJIDIC2 from EDRDG
+  - 1-81 score labels: scraped cache from a public 81-number table
+
+It calculates the standard five grids used by many Japanese name sites. The
+result is not a copy of any one site's proprietary prose.
+"""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import html
+import json
+import re
+import sys
+import urllib.request
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+
+KANJIDIC_URL = "https://www.edrdg.org/kanjidic/kanjidic2.xml.gz"
+KANJIVG_RELEASE_API = "https://api.github.com/repos/KanjiVG/kanjivg/releases/latest"
+SCORE_TABLE_URL = "https://fortune.netoff.co.jp/seimei/kichiku/"
+
+KANJIVG_GZ = DATA_DIR / "kanjivg.xml.gz"
+STROKE_CACHE = DATA_DIR / "stroke_cache.json"
+KANJIDIC_GZ = DATA_DIR / "kanjidic2.xml.gz"
+KANJI_CACHE = DATA_DIR / "kanji_cache.json"
+SCORES_CACHE = DATA_DIR / "score_table.json"
+
+SMALL_KANA_TO_FULL = str.maketrans(
+    "ぁぃぅぇぉゃゅょゎっァィゥェォャュョヮッヶヵ",
+    "あいうえおやゆよわつアイウエオヤユヨワツケカ",
+)
+
+
+@dataclass(frozen=True)
+class Surname:
+    text: str
+    reading: str
+
+
+@dataclass(frozen=True)
+class GivenName:
+    kanji: str
+    reading: str
+
+
+def fetch_url(url: str) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "local-name-calculator/1.0"})
+    with urllib.request.urlopen(req, timeout=60) as response:
+        return response.read()
+
+
+def text_from_html(raw: bytes) -> str:
+    decoded = raw.decode("utf-8", errors="replace")
+    decoded = re.sub(r"<script\b.*?</script>", " ", decoded, flags=re.I | re.S)
+    decoded = re.sub(r"<style\b.*?</style>", " ", decoded, flags=re.I | re.S)
+    decoded = re.sub(r"<[^>]+>", " ", decoded)
+    decoded = html.unescape(decoded)
+    return re.sub(r"[ \t\r\f\v]+", " ", decoded)
+
+
+def ensure_data() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not KANJIVG_GZ.exists():
+        download_kanjivg()
+
+    if not STROKE_CACHE.exists():
+        build_stroke_cache()
+
+    if not KANJIDIC_GZ.exists():
+        KANJIDIC_GZ.write_bytes(fetch_url(KANJIDIC_URL))
+
+    if not KANJI_CACHE.exists():
+        build_kanji_cache()
+
+    if not SCORES_CACHE.exists():
+        build_score_cache()
+
+
+def download_kanjivg() -> None:
+    release = json.loads(fetch_url(KANJIVG_RELEASE_API).decode("utf-8"))
+    assets = release.get("assets", [])
+    for asset in assets:
+        name = str(asset.get("name", ""))
+        url = asset.get("browser_download_url")
+        if name.endswith(".xml.gz") and url:
+            KANJIVG_GZ.write_bytes(fetch_url(str(url)))
+            return
+    raise RuntimeError("Could not find a .xml.gz asset in the latest KanjiVG GitHub release.")
+
+
+def build_stroke_cache() -> None:
+    if not KANJIVG_GZ.exists():
+        download_kanjivg()
+
+    with gzip.open(KANJIVG_GZ, "rb") as fh:
+        root = ET.parse(fh).getroot()
+
+    by_codepoint: dict[str, set[int]] = {}
+    stroke_id = re.compile(r"(?:^|:)([0-9a-f]{5,6})(?:-[a-z0-9]+)?-s([0-9]+)$", re.I)
+    for elem in root.iter():
+        if elem.tag.rsplit("}", 1)[-1] != "path":
+            continue
+        candidates = []
+        for key, value in elem.attrib.items():
+            if key.rsplit("}", 1)[-1] == "id":
+                candidates.append(value)
+        for value in candidates:
+            match = stroke_id.search(value)
+            if not match:
+                continue
+            codepoint = match.group(1).lower()
+            number = int(match.group(2))
+            by_codepoint.setdefault(codepoint, set()).add(number)
+
+    strokes = {
+        chr(int(codepoint, 16)): len(numbers)
+        for codepoint, numbers in by_codepoint.items()
+        if numbers
+    }
+    if not strokes:
+        raise RuntimeError("KanjiVG stroke cache build found no stroke paths.")
+
+    STROKE_CACHE.write_text(
+        json.dumps(
+            {
+                "source": KANJIVG_RELEASE_API,
+                "note": "Built by counting unique KanjiVG stroke path ids for each Unicode code point.",
+                "characters": strokes,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def build_kanji_cache() -> None:
+    if not KANJIDIC_GZ.exists():
+        KANJIDIC_GZ.write_bytes(fetch_url(KANJIDIC_URL))
+
+    with gzip.open(KANJIDIC_GZ, "rb") as fh:
+        root = ET.parse(fh).getroot()
+
+    cache: dict[str, dict[str, object]] = {}
+    for character in root.findall("character"):
+        literal_el = character.find("literal")
+        if literal_el is None or not literal_el.text:
+            continue
+        literal = literal_el.text
+        stroke_counts = [
+            int(el.text)
+            for el in character.findall("./misc/stroke_count")
+            if el.text and el.text.isdigit()
+        ]
+        readings = [
+            el.text
+            for el in character.findall("./reading_meaning/rmgroup/reading")
+            if el.text and el.attrib.get("r_type") in {"ja_on", "ja_kun"}
+        ]
+        nanori = [
+            el.text
+            for el in character.findall("./reading_meaning/nanori")
+            if el.text
+        ]
+        meanings = [
+            el.text
+            for el in character.findall("./reading_meaning/rmgroup/meaning")
+            if el.text and not el.attrib
+        ]
+        cache[literal] = {
+            "strokes": stroke_counts,
+            "readings": readings,
+            "nanori": nanori,
+            "meanings": meanings,
+        }
+
+    KANJI_CACHE.write_text(
+        json.dumps(
+            {
+                "source": KANJIDIC_URL,
+                "note": "First stroke_count is used by default; alternate counts are kept.",
+                "characters": cache,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def build_score_cache() -> None:
+    text = text_from_html(fetch_url(SCORE_TABLE_URL))
+    scores: dict[str, str] = {}
+    for num, label in re.findall(r"\b([1-9][0-9]?)\s+(大吉◎|吉○|小吉△|凶×|大凶[✕×])", text):
+        n = int(num)
+        if 1 <= n <= 81 and str(n) not in scores:
+            scores[str(n)] = label.replace("✕", "×")
+
+    if len(scores) < 81:
+        raise RuntimeError(f"Expected 81 score rows from {SCORE_TABLE_URL}; got {len(scores)}")
+
+    SCORES_CACHE.write_text(
+        json.dumps(
+            {
+                "source": SCORE_TABLE_URL,
+                "note": "Public 1-81 table; not Benesse/Tamahiyo proprietary grading.",
+                "scores": scores,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def kanji_data() -> dict[str, dict[str, object]]:
+    return load_json(KANJI_CACHE)["characters"]
+
+
+def stroke_data() -> dict[str, int]:
+    return load_json(STROKE_CACHE)["characters"]
+
+
+def score_data() -> dict[str, str]:
+    return load_json(SCORES_CACHE)["scores"]
+
+
+def character_strokes(ch: str, strokes: dict[str, int]) -> int:
+    if ch in strokes:
+        return int(strokes[ch])
+    normalized = ch.translate(SMALL_KANA_TO_FULL)
+    if normalized in strokes:
+        return int(strokes[normalized])
+    raise KeyError(ch)
+
+
+def strokes_for_text(text: str, strokes: dict[str, int]) -> list[int]:
+    return [character_strokes(ch, strokes) for ch in text]
+
+
+def element_from_strokes(strokes: int) -> str:
+    return {
+        1: "木",
+        2: "木",
+        3: "火",
+        4: "火",
+        5: "土",
+        6: "土",
+        7: "金",
+        8: "金",
+        9: "水",
+        0: "水",
+    }[strokes % 10]
+
+
+def sound_element(kana_text: str) -> str:
+    if not kana_text:
+        return "?"
+    first = kana_text[0].translate(SMALL_KANA_TO_FULL)
+    first = first.translate(str.maketrans("ガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ", "カキクケコサシスセソタチツテトハヒフヘホハヒフヘホ"))
+    if first in "かきくけこカキクケコ":
+        return "木"
+    if first in "たちつてとなにぬねのらりるれろタチツテトナニヌネノラリルレロ":
+        return "火"
+    if first in "あいうえおやゆよわアイウエオヤユヨワ":
+        return "土"
+    if first in "さしすせそサシスセソ":
+        return "金"
+    if first in "はひふへほまみむめもハヒフヘホマミムメモ":
+        return "水"
+    return "?"
+
+
+def final_sound(reading: str) -> str:
+    if not reading:
+        return "?"
+    text = reading.translate(SMALL_KANA_TO_FULL)
+    if text[-1] != "ー":
+        return text[-1]
+    if len(text) < 2:
+        return "ー"
+    previous = text[-2]
+    vowel = {
+        "あ": "あ", "か": "あ", "さ": "あ", "た": "あ", "な": "あ", "は": "あ", "けん": "あ", "や": "あ", "ら": "あ", "わ": "あ",
+        "ア": "あ", "カ": "あ", "サ": "あ", "タ": "あ", "ナ": "あ", "ハ": "あ", "マ": "あ", "ヤ": "あ", "ラ": "あ", "ワ": "あ",
+        "い": "い", "き": "い", "し": "い", "ち": "い", "に": "い", "ひ": "い", "み": "い", "り": "い",
+        "イ": "い", "キ": "い", "シ": "い", "チ": "い", "ニ": "い", "ヒ": "い", "ミ": "い", "リ": "い",
+        "う": "う", "く": "う", "す": "う", "つ": "う", "ぬ": "う", "ふ": "う", "む": "う", "ゆ": "う", "る": "う",
+        "ウ": "う", "ク": "う", "ス": "う", "ツ": "う", "ヌ": "う", "フ": "う", "ム": "う", "ユ": "う", "ル": "う",
+        "え": "え", "け": "え", "せ": "え", "て": "え", "ね": "え", "へ": "え", "め": "え", "れ": "え",
+        "エ": "え", "ケ": "え", "セ": "え", "テ": "え", "ネ": "え", "ヘ": "え", "メ": "え", "レ": "え",
+        "お": "お", "こ": "お", "そ": "お", "と": "お", "の": "お", "ほ": "お", "も": "お", "よ": "お", "ろ": "お", "を": "お",
+        "オ": "お", "コ": "お", "ソ": "お", "ト": "お", "ノ": "お", "ホ": "お", "モ": "お", "ヨ": "お", "ロ": "お", "ヲ": "お",
+    }.get(previous)
+    return vowel or previous
+
+
+def grid_for_name(surname_strokes: list[int], given_strokes: list[int]) -> dict[str, int]:
+    if not surname_strokes or not given_strokes:
+        raise ValueError("Surname and given name must both contain at least one character.")
+
+    family_padding = max(0, len(surname_strokes) - 2)
+    given_padding = 1 if len(given_strokes) == 1 else 0
+    tenkaku = sum(surname_strokes)
+    jinkaku = surname_strokes[-1] + given_strokes[0]
+    chikaku = sum(given_strokes) + family_padding + given_padding
+    soukaku = sum(surname_strokes) + sum(given_strokes)
+
+    if len(surname_strokes) == 1 and len(given_strokes) == 1:
+        gaikaku = 2 + family_padding
+    elif len(surname_strokes) == 1:
+        gaikaku = sum(given_strokes[1:]) + 1 + family_padding
+    elif len(given_strokes) == 1:
+        gaikaku = sum(surname_strokes[:-1]) + 1 + family_padding
+    else:
+        gaikaku = sum(surname_strokes[:-1]) + sum(given_strokes[1:]) + family_padding
+
+    return {
+        "天格": tenkaku,
+        "人格": jinkaku,
+        "地格": chikaku,
+        "外格": gaikaku,
+        "総格": soukaku,
+    }
+
+
+def score_for(n: int, scores: dict[str, str]) -> str:
+    key = str(((n - 1) % 81) + 1)
+    return scores.get(key, "?")
+
+
+def flags(surname: str, given: str, grid: dict[str, int], kanji: dict[str, dict[str, object]]) -> list[str]:
+    result: list[str] = []
+    if len(given) == 1:
+        result.append("one-character given name")
+    if grid["総格"] >= 40:
+        result.append("total grid is 40+ strokes")
+    if surname and given and surname[-1] == given[0]:
+        result.append("surname final character equals given-name first character")
+    for ch in given:
+        entry = kanji.get(ch)
+        if not entry:
+            continue
+        if ch == "凛":
+            result.append("contains 凛, added to jinmeiyo kanji in 2004")
+    return result
+
+
+def describe_characters(text: str, strokes: dict[str, int], kanji: dict[str, dict[str, object]]) -> str:
+    parts = []
+    for ch in text:
+        count = character_strokes(ch, strokes)
+        entry = kanji.get(ch)
+        if entry:
+            meanings = entry.get("meanings", [])
+            meaning = f" ({'; '.join(str(x) for x in meanings[:3])})" if meanings else ""
+        else:
+            meaning = ""
+        parts.append(f"{ch}:{count}{meaning}")
+    return ", ".join(parts)
+
+
+def evaluate(surnames: Iterable[Surname], given_names: Iterable[GivenName]) -> str:
+    ensure_data()
+    strokes = stroke_data()
+    kanji = kanji_data()
+    scores = score_data()
+
+    lines: list[str] = []
+    for surname in surnames:
+        surname_strokes = strokes_for_text(surname.text, strokes)
+        lines.append(f"# Surname {surname.text} ({surname.reading})")
+        lines.append(f"strokes: {describe_characters(surname.text, strokes, kanji)}")
+        lines.append("")
+        for given in given_names:
+            given_strokes = strokes_for_text(given.kanji, strokes)
+            grid = grid_for_name(surname_strokes, given_strokes)
+            five_elements = {
+                "天格": element_from_strokes(grid["天格"]),
+                "人格": element_from_strokes(grid["人格"]),
+                "地格": element_from_strokes(grid["地格"]),
+            }
+            surname_final = final_sound(surname.reading)
+            surname_sound = sound_element(surname_final)
+            given_sound = sound_element(given.reading)
+            grid_text = " / ".join(
+                f"{name} {value}{score_for(value, scores)}"
+                for name, value in grid.items()
+            )
+            elements_text = " / ".join(f"{name} {element}" for name, element in five_elements.items())
+            name_flags = flags(surname.text, given.kanji, grid, kanji)
+            lines.append(f"## {given.kanji} ({given.reading})")
+            lines.append(f"strokes: {describe_characters(given.kanji, strokes, kanji)}")
+            lines.append(f"grids: {grid_text}")
+            lines.append(f"five-elements by grid: {elements_text}")
+            lines.append(f"sound elements: surname-final={surname_final}:{surname_sound} / given-first={given.reading[0]}:{given_sound}")
+            if name_flags:
+                lines.append(f"flags: {', '.join(name_flags)}")
+            lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def parse_given(raw: str) -> GivenName:
+    if ":" not in raw:
+        raise argparse.ArgumentTypeError("Given names must be KANJI:reading, for example 蓮:やまと")
+    kanji, reading = raw.split(":", 1)
+    if not kanji or not reading:
+        raise argparse.ArgumentTypeError("Given names must include both kanji and reading.")
+    return GivenName(kanji=kanji, reading=reading)
+
+
+def parse_surname(raw: str) -> Surname:
+    if ":" in raw:
+        text, reading = raw.split(":", 1)
+    else:
+        text, reading = raw, raw
+    if not text or not reading:
+        raise argparse.ArgumentTypeError("Surnames must be TEXT or TEXT:reading.")
+    return Surname(text=text, reading=reading)
+
+
+def sample_inputs() -> tuple[list[Surname], list[GivenName]]:
+    surnames = [Surname("山田", "やまだ"), Surname("佐藤", "さとう")]
+    givens = [
+        GivenName("陽太", "ようた"),
+        GivenName("大和", "やまと"),
+        GivenName("悠真", "やまと"),
+        GivenName("蓮", "やまと"),
+        GivenName("湊", "やまと"),
+        GivenName("凛", "はな"),
+        GivenName("陽菜", "はな"),
+        GivenName("葵", "あおい"),
+        GivenName("翼", "つばさ"),
+        GivenName("樹", "けん"),
+        GivenName("健", "けん"),
+        GivenName("咲良", "はな"),
+        GivenName("結菜", "はな"),
+    ]
+    return surnames, givens
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Calculate Japanese name 五格 grids from external stroke data.")
+    parser.add_argument("--surname", action="append", type=parse_surname, default=[], help="Surname as TEXT or TEXT:reading. Repeatable.")
+    parser.add_argument("--given", action="append", type=parse_given, default=[], help="Given name as KANJI:reading. Repeatable.")
+    parser.add_argument("--sample", action="store_true", help="Run the names discussed in this folder.")
+    parser.add_argument("--ensure-data", action="store_true", help="Download/build local source caches, then exit unless names are supplied.")
+    args = parser.parse_args(argv)
+
+    if args.ensure_data:
+        ensure_data()
+        if not args.sample and not args.surname and not args.given:
+            print(f"Data ready in {DATA_DIR}")
+            return 0
+
+    if args.sample:
+        surnames, givens = sample_inputs()
+    else:
+        surnames, givens = args.surname, args.given
+
+    if not surnames or not givens:
+        parser.error("Provide --sample, or at least one --surname and one --given KANJI:reading.")
+
+    print(evaluate(surnames, givens))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
