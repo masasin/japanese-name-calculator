@@ -22,7 +22,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -350,6 +350,34 @@ def score_for(n: int, scores: dict[str, str]) -> str:
     return scores.get(key, "?")
 
 
+def score_weight(label: str) -> int:
+    if "大吉" in label:
+        return 2
+    if "吉" in label and "小吉" not in label:
+        return 1
+    if "小吉" in label:
+        return 0
+    if "大凶" in label:
+        return -2
+    if "凶" in label:
+        return -1
+    return 0
+
+
+def suitability_from_grid(grid_scores: dict[str, str], name_flags: list[str]) -> dict[str, Any]:
+    judged = ["人格", "地格", "外格", "総格"]
+    points = sum(score_weight(grid_scores.get(name, "?")) for name in judged)
+    if any("total grid is 40+" in flag for flag in name_flags):
+        points -= 1
+    if points >= 4:
+        level = "strong"
+    elif points >= 1:
+        level = "mixed"
+    else:
+        level = "weak"
+    return {"level": level, "points": points}
+
+
 def flags(surname: str, given: str, grid: dict[str, int], kanji: dict[str, dict[str, object]]) -> list[str]:
     result: list[str] = []
     if len(given) == 1:
@@ -379,6 +407,124 @@ def describe_characters(text: str, strokes: dict[str, int], kanji: dict[str, dic
             meaning = ""
         parts.append(f"{ch}:{count}{meaning}")
     return ", ".join(parts)
+
+
+def character_details(text: str, strokes: dict[str, int], kanji: dict[str, dict[str, object]]) -> list[dict[str, Any]]:
+    details = []
+    for ch in text:
+        entry = kanji.get(ch, {})
+        details.append(
+            {
+                "character": ch,
+                "strokes": character_strokes(ch, strokes),
+                "meanings_en": entry.get("meanings", []),
+                "readings": entry.get("readings", []),
+                "nanori": entry.get("nanori", []),
+            }
+        )
+    return details
+
+
+def evaluate_structured(surnames: Iterable[Surname], given_names: Iterable[GivenName]) -> dict[str, Any]:
+    ensure_data()
+    strokes = stroke_data()
+    kanji = kanji_data()
+    scores = score_data()
+
+    surname_values = list(surnames)
+    given_values = list(given_names)
+    response: dict[str, Any] = {
+        "surnames": [],
+        "candidates": [],
+        "results": [],
+        "analysis": [],
+        "sources": {
+            "strokes": load_json(STROKE_CACHE).get("source"),
+            "kanji": load_json(KANJI_CACHE).get("source"),
+            "scores": load_json(SCORES_CACHE).get("source"),
+        },
+    }
+
+    for surname in surname_values:
+        surname_strokes = strokes_for_text(surname.text, strokes)
+        response["surnames"].append(
+            {
+                "text": surname.text,
+                "reading": surname.reading,
+                "strokes": surname_strokes,
+                "characters": character_details(surname.text, strokes, kanji),
+            }
+        )
+
+    for given in given_values:
+        given_strokes = strokes_for_text(given.kanji, strokes)
+        response["candidates"].append(
+            {
+                "text": given.kanji,
+                "reading": given.reading,
+                "strokes": given_strokes,
+                "characters": character_details(given.kanji, strokes, kanji),
+            }
+        )
+
+    for given in given_values:
+        aggregate_points = 0
+        levels: list[str] = []
+        for surname in surname_values:
+            surname_strokes = strokes_for_text(surname.text, strokes)
+            given_strokes = strokes_for_text(given.kanji, strokes)
+            grid = grid_for_name(surname_strokes, given_strokes)
+            grid_scores = {name: score_for(value, scores) for name, value in grid.items()}
+            five_elements = {
+                "天格": element_from_strokes(grid["天格"]),
+                "人格": element_from_strokes(grid["人格"]),
+                "地格": element_from_strokes(grid["地格"]),
+            }
+            surname_final = final_sound(surname.reading)
+            sound_elements = {
+                "surname_final": {"sound": surname_final, "element": sound_element(surname_final)},
+                "given_first": {"sound": given.reading[0] if given.reading else "", "element": sound_element(given.reading)},
+            }
+            name_flags = flags(surname.text, given.kanji, grid, kanji)
+            suitability = suitability_from_grid(grid_scores, name_flags)
+            aggregate_points += int(suitability["points"])
+            levels.append(str(suitability["level"]))
+            response["results"].append(
+                {
+                    "surname": surname.text,
+                    "surname_reading": surname.reading,
+                    "candidate": given.kanji,
+                    "candidate_reading": given.reading,
+                    "grid": grid,
+                    "grid_scores": grid_scores,
+                    "five_elements": five_elements,
+                    "sound_elements": sound_elements,
+                    "flags": name_flags,
+                    "suitability": suitability,
+                }
+            )
+
+        if levels:
+            if levels.count("strong") == len(levels):
+                summary_level = "strong"
+            elif "weak" in levels and levels.count("weak") >= levels.count("strong"):
+                summary_level = "weak"
+            else:
+                summary_level = "mixed"
+            response["analysis"].append(
+                {
+                    "candidate": given.kanji,
+                    "reading": given.reading,
+                    "level": summary_level,
+                    "points": aggregate_points,
+                    "strong_count": levels.count("strong"),
+                    "mixed_count": levels.count("mixed"),
+                    "weak_count": levels.count("weak"),
+                }
+            )
+
+    response["analysis"].sort(key=lambda item: (item["points"], item["strong_count"]), reverse=True)
+    return response
 
 
 def evaluate(surnames: Iterable[Surname], given_names: Iterable[GivenName]) -> str:

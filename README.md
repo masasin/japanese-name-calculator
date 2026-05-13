@@ -1,10 +1,12 @@
 # Local Japanese Name Calculator
 
-This folder contains a local Python calculator for Japanese name 五格 checks.
+This folder contains a local FastAPI web app and Python calculator for Japanese name 五格 checks.
 
 ## Files
 
 - `name_fortune.py`: command-line calculator.
+- `main.py`: FastAPI app.
+- `static/`: single-page browser UI.
 - `data/kanjivg.xml.gz`: downloaded KanjiVG source data.
 - `data/stroke_cache.json`: generated stroke counts from KanjiVG stroke paths.
 - `data/kanjidic2.xml.gz`: downloaded KANJIDIC2 source data.
@@ -19,16 +21,30 @@ This folder contains a local Python calculator for Japanese name 五格 checks.
 
 ## Usage
 
-Run the discussed sample set:
+Run the web app:
 
 ```bash
-python3 ~/Documents/naming/name_fortune.py --sample
+uv run uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000
+```
+
+The browser UI stores surnames and candidates in local storage and supports JSON export/import.
+
+Run the command-line sample set:
+
+```bash
+uv run python ~/Documents/naming/name_fortune.py --sample
 ```
 
 Run custom names:
 
 ```bash
-python3 ~/Documents/naming/name_fortune.py \
+uv run python ~/Documents/naming/name_fortune.py \
   --surname '山田:やまだ' \
   --surname '佐藤:さとう' \
   --given '蓮:やまと' \
@@ -38,7 +54,14 @@ python3 ~/Documents/naming/name_fortune.py \
 Refresh or build local data:
 
 ```bash
-python3 ~/Documents/naming/name_fortune.py --ensure-data
+uv run python ~/Documents/naming/name_fortune.py --ensure-data
+```
+
+Run basic checks:
+
+```bash
+uv run python -m py_compile main.py name_fortune.py
+node --check static/app.js
 ```
 
 ## Notes

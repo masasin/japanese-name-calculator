@@ -1,0 +1,18 @@
+[project]
+name = "naming"
+version = "0.1.0"
+description = "Local FastAPI web app for comparing Japanese name candidates."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.136.1",
+    "uvicorn>=0.46.0",
+]
+
+[project.scripts]
+naming = "main:main"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+]

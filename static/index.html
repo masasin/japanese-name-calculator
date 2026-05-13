@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Local Japanese Name Calculator</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1 data-i18n="title">Local Japanese Name Calculator</h1>
+        <p data-i18n="subtitle">Compare candidate given names across surnames using local stroke data.</p>
+      </div>
+      <div class="toolbar">
+        <button type="button" id="languageToggle" class="button secondary">日本語</button>
+        <button type="button" id="importButton" class="button secondary" data-i18n="import">Import JSON</button>
+        <button type="button" id="exportButton" class="button primary" data-i18n="export">Export JSON</button>
+        <input id="importFile" type="file" accept="application/json,.json" hidden>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <h2 data-i18n="surnames">Surnames</h2>
+            <p data-i18n="surnamesHelp">Add each surname to test against. Readings are used for sound elements.</p>
+          </div>
+          <button type="button" id="addSurname" class="button secondary" data-i18n="addSurname">Add surname</button>
+        </div>
+        <div id="surnameList" class="entry-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <h2 data-i18n="candidates">Candidate Names</h2>
+            <p data-i18n="candidatesHelp">Enter kanji and reading. Results update after each edit.</p>
+          </div>
+          <button type="button" id="addCandidate" class="button secondary" data-i18n="addCandidate">Add candidate</button>
+        </div>
+        <div id="candidateList" class="entry-list"></div>
+      </section>
+
+      <section class="panel results-panel">
+        <div class="section-heading">
+          <div>
+            <h2 data-i18n="results">Results</h2>
+            <p data-i18n="resultsHelp">Each cell shows the result for one candidate and one surname.</p>
+          </div>
+          <span id="status" class="status" aria-live="polite"></span>
+        </div>
+        <div id="emptyState" class="empty" data-i18n="empty">Add at least one surname and one candidate.</div>
+        <div id="resultsWrap" class="table-wrap"></div>
+      </section>
+
+      <section class="panel">
+        <h2 data-i18n="analysis">Analysis</h2>
+        <div id="analysisList" class="analysis-list"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
