@@ -26,7 +26,6 @@ class SurnameInput(BaseModel):
 class CandidateInput(BaseModel):
     text: str = Field(min_length=1)
     reading: str = Field(min_length=1)
-    note: str = ""
 
 
 class EvaluationRequest(BaseModel):
@@ -56,9 +55,6 @@ def evaluate_names(request: EvaluationRequest) -> JSONResponse:
             "analysis": [],
             "sources": {},
         }
-        notes = {item.text.strip(): item.note for item in request.candidates if item.text.strip()}
-        for candidate in result.get("candidates", []):
-            candidate["note"] = notes.get(candidate["text"], "")
         return JSONResponse(result)
     except KeyError as exc:
         return JSONResponse(

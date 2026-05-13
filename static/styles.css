@@ -76,6 +76,7 @@ main {
 .toolbar,
 .section-heading,
 .entry-actions,
+.heading-actions,
 .inline-fields,
 .score-line,
 .analysis-meta {
@@ -111,7 +112,7 @@ main {
 
 .entry-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 2fr) auto;
+  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto;
   gap: 10px;
   align-items: end;
   padding: 12px;
@@ -220,12 +221,12 @@ thead th {
 }
 
 .name-cell {
-  min-width: 190px;
+  min-width: 240px;
 }
 
-.candidate-name {
-  font-size: 1.25rem;
-  font-weight: 750;
+.candidate-editor {
+  display: grid;
+  gap: 8px;
 }
 
 .reading,
@@ -294,6 +295,18 @@ thead th {
 
 .score {
   font-weight: 700;
+}
+
+.score-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  font-family: "Noto Sans Symbols 2", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif;
+  font-size: 1rem;
+  line-height: 1;
+  vertical-align: -0.08em;
 }
 
 .flags {

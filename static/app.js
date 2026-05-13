@@ -10,15 +10,13 @@ const i18n = {
     surnamesHelp: "Add each surname to test against. Readings are used for sound elements.",
     addSurname: "Add surname",
     candidates: "Candidate Names",
-    candidatesHelp: "Enter kanji and reading. Results update after each edit.",
     addCandidate: "Add candidate",
     results: "Results",
-    resultsHelp: "Each cell shows the result for one candidate and one surname.",
+    resultsHelp: "Edit candidates in the first column. Each result cell shows one candidate and one surname.",
     empty: "Add at least one surname and one candidate.",
     analysis: "Analysis",
     text: "Written form",
     reading: "Reading",
-    note: "Note",
     remove: "Remove",
     candidate: "Candidate",
     strokes: "strokes",
@@ -48,15 +46,13 @@ const i18n = {
     surnamesHelp: "確認したい姓を追加してください。ふりがなは言霊判定に使います。",
     addSurname: "姓を追加",
     candidates: "候補名",
-    candidatesHelp: "漢字とふりがなを入力してください。編集すると結果が更新されます。",
     addCandidate: "候補名を追加",
     results: "結果",
-    resultsHelp: "各セルは候補名と姓の組み合わせごとの結果です。",
+    resultsHelp: "左列で候補名を編集できます。各セルは候補名と姓の組み合わせごとの結果です。",
     empty: "姓と候補名をそれぞれ1件以上追加してください。",
     analysis: "短評",
     text: "表記",
     reading: "ふりがな",
-    note: "メモ",
     remove: "削除",
     candidate: "候補名",
     strokes: "画",
@@ -86,10 +82,10 @@ const defaultState = {
     { text: "佐藤", reading: "さとう" },
   ],
   candidates: [
-    { text: "陽太", reading: "ようた", note: "" },
-    { text: "蓮", reading: "やまと", note: "Marie registration candidate" },
-    { text: "凛", reading: "はな", note: "" },
-    { text: "陽菜", reading: "はな", note: "" },
+    { text: "陽太", reading: "ようた" },
+    { text: "蓮", reading: "やまと" },
+    { text: "凛", reading: "はな" },
+    { text: "陽菜", reading: "はな" },
   ],
 };
 
@@ -98,7 +94,6 @@ let latestResult = null;
 let evaluateTimer = null;
 
 const surnameList = document.getElementById("surnameList");
-const candidateList = document.getElementById("candidateList");
 const resultsWrap = document.getElementById("resultsWrap");
 const analysisList = document.getElementById("analysisList");
 const emptyState = document.getElementById("emptyState");
@@ -118,7 +113,7 @@ document.getElementById("addSurname").addEventListener("click", () => {
 });
 
 document.getElementById("addCandidate").addEventListener("click", () => {
-  state.candidates.push({ text: "", reading: "", note: "" });
+  state.candidates.push({ text: "", reading: "" });
   saveState();
   renderAll();
 });
@@ -153,7 +148,6 @@ function normalizeState(value) {
     candidates: Array.isArray(value.candidates) ? value.candidates.map((item) => ({
       text: String(item.text || ""),
       reading: String(item.reading || ""),
-      note: String(item.note || ""),
     })) : [],
   };
 }
@@ -173,7 +167,6 @@ function renderAll() {
   });
   document.getElementById("languageToggle").textContent = state.language === "en" ? "日本語" : "English";
   renderSurnames();
-  renderCandidates();
   scheduleEvaluate();
 }
 
@@ -189,31 +182,11 @@ function renderSurnames() {
   });
 }
 
-function renderCandidates() {
-  candidateList.replaceChildren();
-  state.candidates.forEach((candidate, index) => {
-    candidateList.appendChild(entryRow({
-      type: "candidate",
-      index,
-      values: candidate,
-      includeNote: true,
-    }));
-  });
-}
-
-function entryRow({ type, index, values, includeNote }) {
+function entryRow({ type, index, values }) {
   const row = document.createElement("div");
   row.className = "entry-row";
   row.appendChild(field("text", t("text"), values.text, (value) => updateEntry(type, index, "text", value)));
   row.appendChild(field("reading", t("reading"), values.reading, (value) => updateEntry(type, index, "reading", value)));
-  if (includeNote) {
-    row.appendChild(field("note", t("note"), values.note, (value) => updateEntry(type, index, "note", value), true));
-  } else {
-    const spacer = document.createElement("div");
-    spacer.className = "muted";
-    spacer.textContent = "";
-    row.appendChild(spacer);
-  }
 
   const actions = document.createElement("div");
   actions.className = "entry-actions";
@@ -298,7 +271,12 @@ function renderResults() {
   analysisList.replaceChildren();
 
   if (!latestResult || !latestResult.results.length) {
-    emptyState.hidden = false;
+    if (state.candidates.length) {
+      emptyState.hidden = true;
+      renderCandidateEditTable();
+    } else {
+      emptyState.hidden = false;
+    }
     analysisList.appendChild(emptyMessage(t("noAnalysis")));
     return;
   }
@@ -315,11 +293,12 @@ function renderResults() {
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
-  latestResult.candidates.forEach((candidate) => {
+  state.candidates.forEach((candidate, index) => {
     const row = document.createElement("tr");
     const nameCell = document.createElement("td");
     nameCell.className = "name-cell";
-    nameCell.appendChild(candidateSummary(candidate));
+    const evaluatedCandidate = latestResult.candidates.find((item) => item.text === candidate.text);
+    nameCell.appendChild(candidateEditor(candidate, evaluatedCandidate, index));
     row.appendChild(nameCell);
     latestResult.surnames.forEach((surname) => {
       const result = latestResult.results.find((item) => item.candidate === candidate.text && item.surname === surname.text);
@@ -333,28 +312,56 @@ function renderResults() {
   renderAnalysis();
 }
 
-function candidateSummary(candidate) {
-  const wrap = document.createElement("div");
-  const name = document.createElement("div");
-  name.className = "candidate-name";
-  name.textContent = candidate.text;
-  const reading = document.createElement("div");
-  reading.className = "reading";
-  reading.textContent = candidate.reading;
-  const chars = document.createElement("div");
-  chars.className = "char-list";
-  chars.appendChild(sectionLabel(t("characters")));
-  candidate.characters.forEach((item) => {
-    const line = document.createElement("div");
-    line.textContent = `${item.character}: ${item.strokes} ${t("strokes")}${formatMeanings(item)}`;
-    chars.appendChild(line);
+function renderCandidateEditTable() {
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  headerRow.appendChild(th(t("candidate")));
+  state.surnames.forEach((surname) => {
+    headerRow.appendChild(th(`${surname.text || t("surnames")} (${surname.reading || t("reading")})`));
   });
-  wrap.append(name, reading, chars);
-  if (candidate.note) {
-    const note = document.createElement("div");
-    note.className = "muted";
-    note.textContent = candidate.note;
-    wrap.appendChild(note);
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  state.candidates.forEach((candidate, index) => {
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    nameCell.className = "name-cell";
+    nameCell.appendChild(candidateEditor(candidate, null, index));
+    row.appendChild(nameCell);
+    state.surnames.forEach(() => row.appendChild(textCell("")));
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  resultsWrap.appendChild(table);
+}
+
+function candidateEditor(candidate, evaluatedCandidate, index) {
+  const wrap = document.createElement("div");
+  wrap.className = "candidate-editor";
+  wrap.appendChild(field("candidateText", t("text"), candidate.text, (value) => updateEntry("candidate", index, "text", value)));
+  wrap.appendChild(field("candidateReading", t("reading"), candidate.reading, (value) => updateEntry("candidate", index, "reading", value)));
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "button danger";
+  remove.textContent = t("remove");
+  remove.addEventListener("click", () => {
+    state.candidates.splice(index, 1);
+    saveState();
+    renderAll();
+  });
+  wrap.appendChild(remove);
+  if (evaluatedCandidate) {
+    const chars = document.createElement("div");
+    chars.className = "char-list";
+    chars.appendChild(sectionLabel(t("characters")));
+    evaluatedCandidate.characters.forEach((item) => {
+      const line = document.createElement("div");
+      line.textContent = `${item.character}: ${item.strokes} ${t("strokes")}${formatMeanings(item)}`;
+      chars.appendChild(line);
+    });
+    wrap.appendChild(chars);
   }
   return wrap;
 }
@@ -385,7 +392,7 @@ function resultCell(result) {
   Object.entries(result.grid).forEach(([name, value]) => {
     const item = document.createElement("div");
     item.className = "grid-item";
-    item.innerHTML = `<span>${name}</span><span class="score">${value} ${escapeHtml(result.grid_scores[name] || "")}</span>`;
+    item.innerHTML = `<span>${name}</span><span class="score">${value} <span class="score-symbol">${escapeHtml(scoreSymbol(result.grid_scores[name] || ""))}</span></span>`;
     grids.appendChild(item);
   });
 
@@ -437,6 +444,14 @@ function sourceNote() {
   return note;
 }
 
+function scoreSymbol(label) {
+  if (label.includes("◎")) return "◎";
+  if (label.includes("○")) return "○";
+  if (label.includes("△")) return "△";
+  if (label.includes("×") || label.includes("✕")) return "×";
+  return label;
+}
+
 function sectionLabel(text) {
   const node = document.createElement("strong");
   node.textContent = text;
@@ -451,6 +466,12 @@ function textLine(text) {
 
 function th(text) {
   const node = document.createElement("th");
+  node.textContent = text;
+  return node;
+}
+
+function textCell(text) {
+  const node = document.createElement("td");
   node.textContent = text;
   return node;
 }
