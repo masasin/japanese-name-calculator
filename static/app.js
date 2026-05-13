@@ -21,9 +21,14 @@ const i18n = {
     candidate: "Candidate",
     strokes: "strokes",
     characters: "Characters",
+    meaningsEn: "English meanings",
+    readingsLabel: "Readings",
+    nanoriLabel: "Name readings",
     grids: "Grids",
     elements: "Elements",
+    elementJudgment: "Five-element judgment",
     sounds: "Sounds",
+    soundJudgment: "Sound judgment",
     flags: "Flags",
     strong: "strong",
     mixed: "mixed",
@@ -36,6 +41,17 @@ const i18n = {
     sourceNote: "Scores use a public 1-81 table; source prose is not copied.",
     ranked: "Ranked",
     points: "points",
+    relationSame: "same element",
+    relationGenerates: "supports the next element",
+    relationSupportedBy: "is supported by the next element",
+    relationControls: "controls the next element",
+    relationControlledBy: "is controlled by the next element",
+    relationNeutral: "neutral",
+    relationUnknown: "unknown",
+    flagOneCharacter: "one-character given name",
+    flagTotal40: "total grid is 40+ strokes",
+    flagSameCharacter: "surname final character equals given-name first character",
+    flagJinmeiyo2004: "contains 凛, added to jinmeiyo kanji in 2004",
   },
   ja: {
     title: "ローカル姓名判断ツール",
@@ -57,9 +73,14 @@ const i18n = {
     candidate: "候補名",
     strokes: "画",
     characters: "文字",
+    meaningsEn: "英語の意味",
+    readingsLabel: "読み",
+    nanoriLabel: "名乗り",
     grids: "五格",
     elements: "五行",
+    elementJudgment: "五行判定",
     sounds: "言霊",
+    soundJudgment: "言霊判定",
     flags: "注意",
     strong: "強い",
     mixed: "混合",
@@ -72,6 +93,17 @@ const i18n = {
     sourceNote: "吉凶表示は公開81数表を使っています。固有サイトの文章は複製していません。",
     ranked: "順位",
     points: "点",
+    relationSame: "同じ五行",
+    relationGenerates: "次の五行を生じる",
+    relationSupportedBy: "次の五行から生じられる",
+    relationControls: "次の五行を抑える",
+    relationControlledBy: "次の五行に抑えられる",
+    relationNeutral: "中立",
+    relationUnknown: "不明",
+    flagOneCharacter: "一文字の名",
+    flagTotal40: "総格が40画以上",
+    flagSameCharacter: "姓の最後と名の最初が同じ文字",
+    flagJinmeiyo2004: "凛は2004年に人名用漢字へ追加",
   },
 };
 
@@ -367,8 +399,16 @@ function candidateEditor(candidate, evaluatedCandidate, index) {
 }
 
 function formatMeanings(item) {
-  if (!item.meanings_en || !item.meanings_en.length) return "";
-  return ` - ${item.meanings_en.slice(0, 3).join("; ")}`;
+  const parts = [];
+  if (item.meanings_en && item.meanings_en.length) {
+    parts.push(`${t("meaningsEn")}: ${item.meanings_en.slice(0, 3).join("; ")}`);
+  }
+  if (item.nanori && item.nanori.length) {
+    parts.push(`${t("nanoriLabel")}: ${item.nanori.slice(0, 4).join(", ")}`);
+  } else if (item.readings && item.readings.length) {
+    parts.push(`${t("readingsLabel")}: ${item.readings.slice(0, 4).join(", ")}`);
+  }
+  return parts.length ? ` - ${parts.join(" / ")}` : "";
 }
 
 function resultCell(result) {
@@ -400,15 +440,17 @@ function resultCell(result) {
   elements.className = "grid-list";
   elements.appendChild(sectionLabel(t("elements")));
   elements.appendChild(textLine(Object.entries(result.five_elements).map(([name, value]) => `${name}:${value}`).join(" / ")));
+  elements.appendChild(judgmentLine(t("elementJudgment"), result.five_element_judgment));
   elements.appendChild(sectionLabel(t("sounds")));
   elements.appendChild(textLine(`${result.sound_elements.surname_final.sound}:${result.sound_elements.surname_final.element} / ${result.sound_elements.given_first.sound}:${result.sound_elements.given_first.element}`));
+  elements.appendChild(judgmentLine(t("soundJudgment"), result.sound_judgment));
 
   cell.append(top, grids, elements);
   if (result.flags.length) {
     const flags = document.createElement("div");
     flags.className = "flags";
     flags.appendChild(sectionLabel(t("flags")));
-    result.flags.forEach((flag) => flags.appendChild(textLine(flag)));
+    result.flags.forEach((flag) => flags.appendChild(textLine(translateFlag(flag))));
     cell.appendChild(flags);
   }
   return cell;
@@ -450,6 +492,38 @@ function scoreSymbol(label) {
   if (label.includes("△")) return "△";
   if (label.includes("×") || label.includes("✕")) return "×";
   return label;
+}
+
+function judgmentLine(label, judgment) {
+  const line = document.createElement("div");
+  if (!judgment) {
+    line.textContent = `${label}: ${t("relationUnknown")}`;
+    return line;
+  }
+  const relations = (judgment.relations || []).map((item) => `${item.from}->${item.to} ${translateRelation(item.relation)}`);
+  line.textContent = `${label}: ${t(judgment.level)} (${relations.join("; ")})`;
+  return line;
+}
+
+function translateRelation(relation) {
+  const key = {
+    same: "relationSame",
+    generates: "relationGenerates",
+    supported_by: "relationSupportedBy",
+    controls: "relationControls",
+    controlled_by: "relationControlledBy",
+    neutral: "relationNeutral",
+    unknown: "relationUnknown",
+  }[relation] || "relationUnknown";
+  return t(key);
+}
+
+function translateFlag(flag) {
+  if (flag === "one-character given name") return t("flagOneCharacter");
+  if (flag === "total grid is 40+ strokes") return t("flagTotal40");
+  if (flag === "surname final character equals given-name first character") return t("flagSameCharacter");
+  if (flag === "contains 凛, added to jinmeiyo kanji in 2004") return t("flagJinmeiyo2004");
+  return flag;
 }
 
 function sectionLabel(text) {

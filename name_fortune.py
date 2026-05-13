@@ -274,6 +274,67 @@ def element_from_strokes(strokes: int) -> str:
     }[strokes % 10]
 
 
+GENERATES = {
+    "木": "火",
+    "火": "土",
+    "土": "金",
+    "金": "水",
+    "水": "木",
+}
+
+CONTROLS = {
+    "木": "土",
+    "土": "水",
+    "水": "火",
+    "火": "金",
+    "金": "木",
+}
+
+
+def element_relation(left: str, right: str) -> str:
+    if "?" in {left, right}:
+        return "unknown"
+    if left == right:
+        return "same"
+    if GENERATES.get(left) == right:
+        return "generates"
+    if GENERATES.get(right) == left:
+        return "supported_by"
+    if CONTROLS.get(left) == right:
+        return "controls"
+    if CONTROLS.get(right) == left:
+        return "controlled_by"
+    return "neutral"
+
+
+def judge_element_sequence(elements: list[str]) -> dict[str, Any]:
+    relations = [
+        {
+            "from": elements[index],
+            "to": elements[index + 1],
+            "relation": element_relation(elements[index], elements[index + 1]),
+        }
+        for index in range(len(elements) - 1)
+    ]
+    weights = {
+        "generates": 2,
+        "same": 1,
+        "supported_by": 1,
+        "neutral": 0,
+        "controls": -1,
+        "controlled_by": -2,
+        "unknown": 0,
+    }
+    points = sum(weights[item["relation"]] for item in relations)
+    if points >= 3:
+        level = "strong"
+    elif points >= 0:
+        level = "mixed"
+    else:
+        level = "weak"
+    return {"level": level, "points": points, "relations": relations}
+
+
 def sound_element(kana_text: str) -> str:
     if not kana_text:
         return "?"
@@ -481,9 +542,11 @@ def evaluate_structured(surnames: Iterable[Surname], given_names: Iterable[Given
                 "地格": element_from_strokes(grid["地格"]),
             }
             surname_final = final_sound(surname.reading)
+            surname_sound_element = sound_element(surname_final)
+            given_sound_element = sound_element(given.reading)
             sound_elements = {
-                "surname_final": {"sound": surname_final, "element": sound_element(surname_final)},
-                "given_first": {"sound": given.reading[0] if given.reading else "", "element": sound_element(given.reading)},
+                "surname_final": {"sound": surname_final, "element": surname_sound_element},
+                "given_first": {"sound": given.reading[0] if given.reading else "", "element": given_sound_element},
             }
             name_flags = flags(surname.text, given.kanji, grid, kanji)
             suitability = suitability_from_grid(grid_scores, name_flags)
@@ -498,7 +561,13 @@ def evaluate_structured(surnames: Iterable[Surname], given_names: Iterable[Given
                     "grid": grid,
                     "grid_scores": grid_scores,
                     "five_elements": five_elements,
+                    "five_element_judgment": judge_element_sequence([
+                        five_elements["天格"],
+                        five_elements["人格"],
+                        five_elements["地格"],
+                    ]),
                     "sound_elements": sound_elements,
+                    "sound_judgment": judge_element_sequence([surname_sound_element, given_sound_element]),
                     "flags": name_flags,
                     "suitability": suitability,
                 }
