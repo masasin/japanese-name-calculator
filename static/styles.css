@@ -298,15 +298,47 @@ thead th {
 }
 
 .score-symbol {
+  --score-symbol-size: 1.05rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.25em;
-  height: 1.25em;
-  font-family: "Noto Sans Symbols 2", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif;
-  font-size: 1rem;
+  position: relative;
+  width: var(--score-symbol-size);
+  height: var(--score-symbol-size);
+  margin-left: 2px;
   line-height: 1;
-  vertical-align: -0.08em;
+  vertical-align: -0.12em;
+}
+
+.score-symbol-circle::before,
+.score-symbol-double::before,
+.score-symbol-double::after {
+  content: "";
+  display: block;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.score-symbol-circle::before,
+.score-symbol-double::before {
+  width: var(--score-symbol-size);
+  height: var(--score-symbol-size);
+}
+
+.score-symbol-double::after {
+  position: absolute;
+  width: calc(var(--score-symbol-size) * 0.52);
+  height: calc(var(--score-symbol-size) * 0.52);
+}
+
+.score-symbol-triangle::before {
+  content: "";
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: calc(var(--score-symbol-size) * 0.5) solid transparent;
+  border-right: calc(var(--score-symbol-size) * 0.5) solid transparent;
+  border-bottom: var(--score-symbol-size) solid currentColor;
 }
 
 .flags {

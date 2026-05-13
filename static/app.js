@@ -21,7 +21,7 @@ const i18n = {
     candidate: "Candidate",
     strokes: "strokes",
     characters: "Characters",
-    meaningsEn: "English meanings",
+    meanings: "Meanings",
     readingsLabel: "Readings",
     nanoriLabel: "Name readings",
     grids: "Grids",
@@ -73,7 +73,7 @@ const i18n = {
     candidate: "候補名",
     strokes: "画",
     characters: "文字",
-    meaningsEn: "英語の意味",
+    meanings: "意味",
     readingsLabel: "読み",
     nanoriLabel: "名乗り",
     grids: "五格",
@@ -158,6 +158,41 @@ renderAll();
 
 function t(key) {
   return i18n[state.language][key] || i18n.en[key] || key;
+}
+
+const displayStrategies = {
+  en: {
+    characterDetails(item) {
+      const parts = [];
+      if (item.meanings_en && item.meanings_en.length) {
+        parts.push(`${t("meanings")}: ${item.meanings_en.slice(0, 3).join("; ")}`);
+      }
+      if (item.nanori && item.nanori.length) {
+        parts.push(`${t("nanoriLabel")}: ${item.nanori.slice(0, 4).join(", ")}`);
+      } else if (item.readings && item.readings.length) {
+        parts.push(`${t("readingsLabel")}: ${item.readings.slice(0, 4).join(", ")}`);
+      }
+      return parts;
+    },
+  },
+  ja: {
+    characterDetails(item) {
+      const parts = [];
+      if (item.meanings_ja && item.meanings_ja.length) {
+        parts.push(`${t("meanings")}: ${item.meanings_ja.slice(0, 3).join("、")}`);
+      }
+      if (item.nanori && item.nanori.length) {
+        parts.push(`${t("nanoriLabel")}: ${item.nanori.slice(0, 4).join("、")}`);
+      } else if (item.readings && item.readings.length) {
+        parts.push(`${t("readingsLabel")}: ${item.readings.slice(0, 4).join("、")}`);
+      }
+      return parts;
+    },
+  },
+};
+
+function displayStrategy() {
+  return displayStrategies[state.language] || displayStrategies.en;
 }
 
 function loadState() {
@@ -399,15 +434,7 @@ function candidateEditor(candidate, evaluatedCandidate, index) {
 }
 
 function formatMeanings(item) {
-  const parts = [];
-  if (item.meanings_en && item.meanings_en.length) {
-    parts.push(`${t("meaningsEn")}: ${item.meanings_en.slice(0, 3).join("; ")}`);
-  }
-  if (item.nanori && item.nanori.length) {
-    parts.push(`${t("nanoriLabel")}: ${item.nanori.slice(0, 4).join(", ")}`);
-  } else if (item.readings && item.readings.length) {
-    parts.push(`${t("readingsLabel")}: ${item.readings.slice(0, 4).join(", ")}`);
-  }
+  const parts = displayStrategy().characterDetails(item);
   return parts.length ? ` - ${parts.join(" / ")}` : "";
 }
 
@@ -432,7 +459,12 @@ function resultCell(result) {
   Object.entries(result.grid).forEach(([name, value]) => {
     const item = document.createElement("div");
     item.className = "grid-item";
-    item.innerHTML = `<span>${name}</span><span class="score">${value} <span class="score-symbol">${escapeHtml(scoreSymbol(result.grid_scores[name] || ""))}</span></span>`;
+    const label = document.createElement("span");
+    label.textContent = name;
+    const score = document.createElement("span");
+    score.className = "score";
+    score.append(`${value} `, scoreSymbol(result.grid_scores[name] || ""));
+    item.append(label, score);
     grids.appendChild(item);
   });
 
@@ -487,11 +519,16 @@ function sourceNote() {
 }
 
 function scoreSymbol(label) {
-  if (label.includes("◎")) return "◎";
-  if (label.includes("○")) return "○";
-  if (label.includes("△")) return "△";
-  if (label.includes("×") || label.includes("✕")) return "×";
-  return label;
+  const symbol = document.createElement("span");
+  symbol.setAttribute("aria-label", label);
+  if (label.includes("◎")) {
+    symbol.className = "score-symbol score-symbol-double";
+  } else if (label.includes("○")) {
+    symbol.className = "score-symbol score-symbol-circle";
+  } else {
+    symbol.className = "score-symbol score-symbol-triangle";
+  }
+  return symbol;
 }
 
 function judgmentLine(label, judgment) {

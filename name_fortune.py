@@ -18,6 +18,7 @@ import html
 import json
 import re
 import sys
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -31,12 +32,14 @@ DATA_DIR = BASE_DIR / "data"
 KANJIDIC_URL = "https://www.edrdg.org/kanjidic/kanjidic2.xml.gz"
 KANJIVG_RELEASE_API = "https://api.github.com/repos/KanjiVG/kanjivg/releases/latest"
 SCORE_TABLE_URL = "https://fortune.netoff.co.jp/seimei/kichiku/"
+WIKTIONARY_API_URL = "https://ja.wiktionary.org/w/api.php"
 
 KANJIVG_GZ = DATA_DIR / "kanjivg.xml.gz"
 STROKE_CACHE = DATA_DIR / "stroke_cache.json"
 KANJIDIC_GZ = DATA_DIR / "kanjidic2.xml.gz"
 KANJI_CACHE = DATA_DIR / "kanji_cache.json"
 SCORES_CACHE = DATA_DIR / "score_table.json"
+JA_MEANINGS_CACHE = DATA_DIR / "ja_meanings_cache.json"
 
 SMALL_KANA_TO_FULL = str.maketrans(
     "ぁぃぅぇぉゃゅょゎっァィゥェォャュョヮッヶヵ",
@@ -234,6 +237,12 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_optional_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
+    if not path.exists():
+        return default
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def kanji_data() -> dict[str, dict[str, object]]:
     return load_json(KANJI_CACHE)["characters"]
 
@@ -244,6 +253,10 @@ def stroke_data() -> dict[str, int]:
 
 def score_data() -> dict[str, str]:
     return load_json(SCORES_CACHE)["scores"]
+
+
+def ja_meaning_data() -> dict[str, list[str]]:
+    return load_optional_json(JA_MEANINGS_CACHE, {"source": WIKTIONARY_API_URL, "characters": {}})["characters"]
 
 
 def character_strokes(ch: str, strokes: dict[str, int]) -> int:
@@ -257,6 +270,93 @@ def character_strokes(ch: str, strokes: dict[str, int]) -> int:
 
 def strokes_for_text(text: str, strokes: dict[str, int]) -> list[int]:
     return [character_strokes(ch, strokes) for ch in text]
+
+
+class JapaneseMeaningSource:
+    source_url = WIKTIONARY_API_URL
+
+    def fetch(self, character: str) -> list[str]:
+        query = urllib.parse.urlencode(
+            {
+                "action": "query",
+                "prop": "revisions",
+                "titles": character,
+                "rvprop": "content",
+                "rvslots": "main",
+                "format": "json",
+                "formatversion": "2",
+            }
+        )
+        raw = fetch_url(f"{self.source_url}?{query}")
+        data = json.loads(raw.decode("utf-8"))
+        pages = data.get("query", {}).get("pages", [])
+        if not pages or pages[0].get("missing"):
+            return []
+        revisions = pages[0].get("revisions", [])
+        if not revisions:
+            return []
+        content = revisions[0].get("slots", {}).get("main", {}).get("content", "")
+        return self.extract_meanings(content)
+
+    def extract_meanings(self, content: str) -> list[str]:
+        section = self._extract_section(content, "意義")
+        if not section:
+            return []
+        meanings: list[str] = []
+        for raw_line in section.splitlines():
+            line = raw_line.strip()
+            if not line.startswith("#"):
+                continue
+            line = line.lstrip("#*:; ").strip()
+            cleaned = self._clean_wikitext(line)
+            if cleaned and cleaned not in meanings:
+                meanings.append(cleaned)
+            if len(meanings) >= 5:
+                break
+        return meanings
+
+    def _extract_section(self, content: str, heading: str) -> str:
+        match = re.search(rf"^===+\s*{re.escape(heading)}\s*===+\s*$", content, flags=re.M)
+        if not match:
+            return ""
+        start = match.end()
+        next_heading = re.search(r"^===+[^=].*===+\s*$", content[start:], flags=re.M)
+        end = start + next_heading.start() if next_heading else len(content)
+        return content[start:end]
+
+    def _clean_wikitext(self, text: str) -> str:
+        text = re.sub(r"<ref\b.*?</ref>", "", text, flags=re.S)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r"\{\{(?:[^{}]|\{[^{}]*\})*?\}\}", "", text)
+        text = re.sub(r"\[\[([^|\]]+)\|([^|\]]+)\]\]", r"\2", text)
+        text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
+        text = re.sub(r"\[https?://[^\s\]]+\s*([^\]]+)\]", r"\1", text)
+        text = re.sub(r"'{2,}", "", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip(" 。、;；")
+
+
+def ensure_japanese_meanings(characters: Iterable[str], kanji: dict[str, dict[str, object]]) -> dict[str, list[str]]:
+    cache = load_optional_json(JA_MEANINGS_CACHE, {"source": WIKTIONARY_API_URL, "characters": {}})
+    cached_characters = cache.setdefault("characters", {})
+    source = JapaneseMeaningSource()
+    changed = False
+
+    for ch in sorted(set(characters)):
+        if ch not in kanji or ch in cached_characters:
+            continue
+        try:
+            cached_characters[ch] = source.fetch(ch)
+        except Exception:
+            cached_characters[ch] = []
+        changed = True
+
+    if changed:
+        JA_MEANINGS_CACHE.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    return cached_characters
 
 
 def element_from_strokes(strokes: int) -> str:
@@ -470,7 +570,12 @@ def describe_characters(text: str, strokes: dict[str, int], kanji: dict[str, dic
     return ", ".join(parts)
 
 
-def character_details(text: str, strokes: dict[str, int], kanji: dict[str, dict[str, object]]) -> list[dict[str, Any]]:
+def character_details(
+    text: str,
+    strokes: dict[str, int],
+    kanji: dict[str, dict[str, object]],
+    meanings_ja: dict[str, list[str]],
+) -> list[dict[str, Any]]:
     details = []
     for ch in text:
         entry = kanji.get(ch, {})
@@ -479,6 +584,7 @@ def character_details(text: str, strokes: dict[str, int], kanji: dict[str, dict[
                 "character": ch,
                 "strokes": character_strokes(ch, strokes),
                 "meanings_en": entry.get("meanings", []),
+                "meanings_ja": meanings_ja.get(ch, []),
                 "readings": entry.get("readings", []),
                 "nanori": entry.get("nanori", []),
             }
@@ -494,6 +600,8 @@ def evaluate_structured(surnames: Iterable[Surname], given_names: Iterable[Given
 
     surname_values = list(surnames)
     given_values = list(given_names)
+    meaning_characters = "".join(item.text for item in surname_values) + "".join(item.kanji for item in given_values)
+    meanings_ja = ensure_japanese_meanings(meaning_characters, kanji)
     response: dict[str, Any] = {
         "surnames": [],
         "candidates": [],
@@ -503,6 +611,7 @@ def evaluate_structured(surnames: Iterable[Surname], given_names: Iterable[Given
             "strokes": load_json(STROKE_CACHE).get("source"),
             "kanji": load_json(KANJI_CACHE).get("source"),
             "scores": load_json(SCORES_CACHE).get("source"),
+            "meanings_ja": WIKTIONARY_API_URL,
         },
     }
 
@@ -513,7 +622,7 @@ def evaluate_structured(surnames: Iterable[Surname], given_names: Iterable[Given
                 "text": surname.text,
                 "reading": surname.reading,
                 "strokes": surname_strokes,
-                "characters": character_details(surname.text, strokes, kanji),
+                "characters": character_details(surname.text, strokes, kanji, meanings_ja),
             }
         )
 
@@ -524,7 +633,7 @@ def evaluate_structured(surnames: Iterable[Surname], given_names: Iterable[Given
                 "text": given.kanji,
                 "reading": given.reading,
                 "strokes": given_strokes,
-                "characters": character_details(given.kanji, strokes, kanji),
+                "characters": character_details(given.kanji, strokes, kanji, meanings_ja),
             }
         )
 
