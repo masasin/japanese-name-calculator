@@ -14,7 +14,7 @@ from name_fortune import GivenName, Surname, evaluate_structured
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="Local Japanese Name Calculator")
+app = FastAPI(title="Japanese Name Calculator")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 

@@ -1,4 +1,4 @@
-# Local Japanese Name Calculator
+# Japanese Name Calculator
 
 This folder contains a local FastAPI web app and Python calculator for Japanese name 五格 checks.
 

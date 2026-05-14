@@ -2,8 +2,8 @@ const STORAGE_KEY = "localJapaneseNameCalculatorState:v1";
 
 const i18n = {
   en: {
-    title: "Local Japanese Name Calculator",
-    subtitle: "Compare candidate given names across surnames using local stroke data.",
+    title: "Japanese Name Calculator",
+    subtitle: "Compare candidate given names across surnames using stroke data.",
     import: "Import JSON",
     export: "Export JSON",
     themeSystem: "System theme",
@@ -57,8 +57,8 @@ const i18n = {
     flagJinmeiyo2004: "contains 凛, added to jinmeiyo kanji in 2004",
   },
   ja: {
-    title: "ローカル姓名判断ツール",
-    subtitle: "ローカルの画数データで、候補名を複数の姓に対して比較します。",
+    title: "姓名判断ツール",
+    subtitle: "画数データで、候補名を複数の姓に対して比較します。",
     import: "JSON読み込み",
     export: "JSON書き出し",
     themeSystem: "システムテーマ",
