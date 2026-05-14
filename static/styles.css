@@ -2,6 +2,16 @@
   color-scheme: light;
   --bg: #f7f7f4;
   --panel: #ffffff;
+  --panel-soft: #fbfcfd;
+  --field-bg: #ffffff;
+  --topbar-bg: #ffffff;
+  --header-bg: #eef2f6;
+  --empty-bg: #fafafa;
+  --secondary-bg: #eef2f6;
+  --secondary-border: #d5dce3;
+  --danger-bg: #fff4f4;
+  --danger-border: #f0c7c7;
+  --field-border: #cbd5df;
   --text: #1f2933;
   --muted: #667085;
   --line: #d8dee4;
@@ -13,7 +23,53 @@
   --strong-bg: #e8f5e9;
   --mixed-bg: #fff6db;
   --weak-bg: #fdecec;
+  --strong-badge-text: #166534;
+  --strong-badge-bg: #ccebd2;
+  --mixed-badge-text: #7a4a00;
+  --mixed-badge-bg: #ffe8a3;
+  --weak-badge-text: #8a1f1f;
+  --weak-badge-bg: #f7caca;
+  --strong-border: #94d3a2;
+  --mixed-border: #e7be53;
+  --weak-border: #eca5a5;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111417;
+  --panel: #1a1f24;
+  --panel-soft: #20262c;
+  --field-bg: #12171c;
+  --topbar-bg: #171c21;
+  --header-bg: #222932;
+  --empty-bg: #171c21;
+  --secondary-bg: #26313a;
+  --secondary-border: #394650;
+  --danger-bg: #3a2024;
+  --danger-border: #6f3a41;
+  --field-border: #3a4651;
+  --text: #e7edf2;
+  --muted: #a8b3bd;
+  --line: #34404a;
+  --primary: #6aa6cc;
+  --primary-ink: #0d141a;
+  --accent: #9bc35c;
+  --warning: #e3a24d;
+  --danger: #f19aa1;
+  --strong-bg: #1c3427;
+  --mixed-bg: #3a311c;
+  --weak-bg: #3b2225;
+  --strong-badge-text: #d9f7df;
+  --strong-badge-bg: #255d39;
+  --mixed-badge-text: #fff1bd;
+  --mixed-badge-bg: #66501d;
+  --weak-badge-text: #ffd9dc;
+  --weak-badge-bg: #69343b;
+  --strong-border: #3f7d50;
+  --mixed-border: #8b6d28;
+  --weak-border: #8f4650;
+  --shadow: none;
 }
 
 * {
@@ -41,7 +97,7 @@ textarea {
   gap: 24px;
   padding: 24px clamp(16px, 4vw, 40px);
   border-bottom: 1px solid var(--line);
-  background: #ffffff;
+  background: var(--topbar-bg);
 }
 
 h1,
@@ -118,7 +174,7 @@ main {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fbfcfd;
+  background: var(--panel-soft);
 }
 
 .field {
@@ -136,10 +192,10 @@ main {
 .field textarea {
   width: 100%;
   min-width: 0;
-  border: 1px solid #cbd5df;
+  border: 1px solid var(--field-border);
   border-radius: 6px;
   padding: 9px 10px;
-  background: #ffffff;
+  background: var(--field-bg);
   color: var(--text);
 }
 
@@ -157,6 +213,16 @@ main {
   min-height: 38px;
 }
 
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
 .button.compact {
   padding-inline: 10px;
 }
@@ -172,15 +238,15 @@ main {
 }
 
 .button.secondary {
-  background: #eef2f6;
+  background: var(--secondary-bg);
   color: var(--text);
-  border-color: #d5dce3;
+  border-color: var(--secondary-border);
 }
 
 .button.danger {
-  background: #fff4f4;
+  background: var(--danger-bg);
   color: var(--danger);
-  border-color: #f0c7c7;
+  border-color: var(--danger-border);
 }
 
 .status {
@@ -193,7 +259,7 @@ main {
   border: 1px dashed var(--line);
   border-radius: 8px;
   color: var(--muted);
-  background: #fafafa;
+  background: var(--empty-bg);
 }
 
 .table-wrap {
@@ -232,7 +298,7 @@ thead th {
   top: 0;
   z-index: 1;
   border-top: 1px solid var(--line);
-  background: #eef2f6;
+  background: var(--header-bg);
 }
 
 .name-cell {
@@ -285,18 +351,18 @@ thead th {
 }
 
 .badge.strong {
-  color: #166534;
-  background: #ccebd2;
+  color: var(--strong-badge-text);
+  background: var(--strong-badge-bg);
 }
 
 .badge.mixed {
-  color: #7a4a00;
-  background: #ffe8a3;
+  color: var(--mixed-badge-text);
+  background: var(--mixed-badge-bg);
 }
 
 .badge.weak {
-  color: #8a1f1f;
-  background: #f7caca;
+  color: var(--weak-badge-text);
+  background: var(--weak-badge-bg);
 }
 
 .grid-list,
@@ -379,19 +445,19 @@ thead th {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
-  background: #fbfcfd;
+  background: var(--panel-soft);
 }
 
 .analysis-card.strong {
-  border-color: #94d3a2;
+  border-color: var(--strong-border);
 }
 
 .analysis-card.mixed {
-  border-color: #e7be53;
+  border-color: var(--mixed-border);
 }
 
 .analysis-card.weak {
-  border-color: #eca5a5;
+  border-color: var(--weak-border);
 }
 
 @media (max-width: 780px) {

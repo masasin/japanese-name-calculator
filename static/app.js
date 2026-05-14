@@ -6,6 +6,9 @@ const i18n = {
     subtitle: "Compare candidate given names across surnames using local stroke data.",
     import: "Import JSON",
     export: "Export JSON",
+    themeSystem: "System theme",
+    themeLight: "Light theme",
+    themeDark: "Dark theme",
     surnames: "Surnames",
     surnamesHelp: "Add each surname to test against. Readings are used for sound elements.",
     addSurname: "Add surname",
@@ -58,6 +61,9 @@ const i18n = {
     subtitle: "ローカルの画数データで、候補名を複数の姓に対して比較します。",
     import: "JSON読み込み",
     export: "JSON書き出し",
+    themeSystem: "システムテーマ",
+    themeLight: "ライトテーマ",
+    themeDark: "ダークテーマ",
     surnames: "姓",
     surnamesHelp: "確認したい姓を追加してください。ふりがなは言霊判定に使います。",
     addSurname: "姓を追加",
@@ -109,6 +115,7 @@ const i18n = {
 
 const defaultState = {
   language: "en",
+  theme: "system",
   surnames: [
     { text: "山田", reading: "やまだ" },
     { text: "佐藤", reading: "さとう" },
@@ -140,6 +147,12 @@ document.getElementById("languageToggle").addEventListener("click", () => {
   renderAll();
 });
 
+document.getElementById("themeToggle").addEventListener("click", () => {
+  state.theme = nextTheme(state.theme);
+  saveState();
+  renderAll();
+});
+
 document.getElementById("addSurname").addEventListener("click", () => {
   state.surnames.push({ text: "", reading: "" });
   saveState();
@@ -156,6 +169,11 @@ document.getElementById("addCandidate").addEventListener("click", () => {
 document.getElementById("exportButton").addEventListener("click", exportJson);
 document.getElementById("importButton").addEventListener("click", () => importFile.click());
 importFile.addEventListener("change", importJson);
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (state.theme === "system") renderAll();
+  });
+}
 
 renderAll();
 calculateExistingCandidates(initialCalculationIndexes);
@@ -214,6 +232,7 @@ function loadState() {
 function normalizeState(value) {
   return {
     language: value.language === "ja" ? "ja" : "en",
+    theme: ["system", "light", "dark"].includes(value.theme) ? value.theme : "system",
     surnames: Array.isArray(value.surnames) ? value.surnames.map((item) => ({
       text: String(item.text || ""),
       reading: String(item.reading || ""),
@@ -235,12 +254,53 @@ function setStatus(messageKey) {
 
 function renderAll() {
   document.documentElement.lang = state.language;
+  applyTheme();
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
   document.getElementById("languageToggle").textContent = state.language === "en" ? "日本語" : "English";
+  renderThemeToggle();
   renderSurnames();
   renderResults();
+}
+
+function applyTheme() {
+  const theme = effectiveTheme();
+  document.documentElement.dataset.theme = theme;
+  document.body.dataset.theme = theme;
+}
+
+function renderThemeToggle() {
+  const button = document.getElementById("themeToggle");
+  const icon = document.createElement("i");
+  icon.className = `fa-solid ${themeIconClass(state.theme)}`;
+  icon.setAttribute("aria-hidden", "true");
+  button.replaceChildren(icon);
+  button.setAttribute("aria-label", t(themeLabelKey(state.theme)));
+  button.title = t(themeLabelKey(state.theme));
+}
+
+function nextTheme(theme) {
+  if (theme === "system") return "light";
+  if (theme === "light") return "dark";
+  return "system";
+}
+
+function themeLabelKey(theme) {
+  if (theme === "light") return "themeLight";
+  if (theme === "dark") return "themeDark";
+  return "themeSystem";
+}
+
+function themeIconClass(theme) {
+  if (theme === "light") return "fa-sun";
+  if (theme === "dark") return "fa-moon";
+  return "fa-circle-half-stroke";
+}
+
+function effectiveTheme() {
+  if (state.theme === "light" || state.theme === "dark") return state.theme;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function renderSurnames() {

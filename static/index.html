@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Local Japanese Name Calculator</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
@@ -13,6 +14,7 @@
         <p data-i18n="subtitle">Compare candidate given names across surnames using local stroke data.</p>
       </div>
       <div class="toolbar">
+        <button type="button" id="themeToggle" class="button secondary icon-button" aria-label="System theme" title="System theme"><i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i></button>
         <button type="button" id="languageToggle" class="button secondary">日本語</button>
         <button type="button" id="importButton" class="button secondary" data-i18n="import">Import JSON</button>
         <button type="button" id="exportButton" class="button primary" data-i18n="export">Export JSON</button>
