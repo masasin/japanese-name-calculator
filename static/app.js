@@ -38,7 +38,6 @@ const i18n = {
     error: "Could not evaluate",
     imported: "Imported",
     noAnalysis: "No analysis yet.",
-    sourceNote: "Scores use a public 1-81 table; source prose is not copied.",
     ranked: "Ranked",
     points: "points",
     relationSame: "same element",
@@ -90,7 +89,6 @@ const i18n = {
     error: "計算できません",
     imported: "読み込み済み",
     noAnalysis: "短評はまだありません。",
-    sourceNote: "吉凶表示は公開81数表を使っています。固有サイトの文章は複製していません。",
     ranked: "順位",
     points: "点",
     relationSame: "同じ五行",
@@ -375,7 +373,6 @@ function renderResults() {
   });
   table.appendChild(tbody);
   resultsWrap.appendChild(table);
-  resultsWrap.appendChild(sourceNote());
   renderAnalysis();
 }
 
@@ -509,13 +506,6 @@ function renderAnalysis() {
     card.append(title, meta);
     analysisList.appendChild(card);
   });
-}
-
-function sourceNote() {
-  const note = document.createElement("div");
-  note.className = "source-note";
-  note.textContent = t("sourceNote");
-  return note;
 }
 
 function scoreSymbol(label) {

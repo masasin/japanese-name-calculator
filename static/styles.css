@@ -369,12 +369,6 @@ thead th {
   border-color: #eca5a5;
 }
 
-.source-note {
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
 @media (max-width: 780px) {
   .topbar,
   .section-heading {
