@@ -191,6 +191,12 @@ main {
   overflow-x: auto;
 }
 
+.table-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
 table {
   width: 100%;
   min-width: 760px;
