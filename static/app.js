@@ -456,7 +456,7 @@ function renderResults() {
   const headerRow = document.createElement("tr");
   headerRow.appendChild(th(t("candidate")));
   state.surnames.forEach((surname) => {
-    headerRow.appendChild(th(`${surname.text || t("surnames")} (${surname.reading || t("reading")})`));
+    headerRow.appendChild(th(surnameHeaderText(surname)));
   });
   thead.appendChild(headerRow);
   table.appendChild(thead);
@@ -479,6 +479,24 @@ function renderResults() {
   table.appendChild(tbody);
   resultsWrap.appendChild(table);
   renderAnalysis();
+}
+
+function surnameHeaderText(surname) {
+  const base = `${surname.text || t("surnames")} (${surname.reading || t("reading")})`;
+  const total = surnameStrokeTotal(surname);
+  return total ? `${base} - ${total} ${t("strokes")}` : base;
+}
+
+function surnameStrokeTotal(surname) {
+  for (let index = 0; index < candidateResults.length; index += 1) {
+    const item = candidateResults[index];
+    if (!item || item.signature !== candidateSignature(index)) continue;
+    const match = item.data.surnames.find((candidateSurname) => (
+      candidateSurname.text === surname.text && candidateSurname.reading === surname.reading
+    ));
+    if (match) return match.strokes.reduce((total, value) => total + value, 0);
+  }
+  return null;
 }
 
 function candidateEditor(candidate, evaluatedCandidate, index) {
