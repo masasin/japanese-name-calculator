@@ -156,6 +156,7 @@ document.getElementById("importButton").addEventListener("click", () => importFi
 importFile.addEventListener("change", importJson);
 
 renderAll();
+calculateExistingCandidates();
 
 function t(key) {
   return i18n[state.language][key] || i18n.en[key] || key;
@@ -321,6 +322,41 @@ async function calculateCandidate(index) {
   }
 }
 
+async function calculateExistingCandidates() {
+  const payload = existingCandidatesPayload();
+  if (!payload) return;
+
+  const signatures = new Map(payload.indexes.map((index) => [index, candidateSignature(index)]));
+  payload.indexes.forEach((index) => calculatingCandidates.add(index));
+  refreshCalculateButtons();
+  setStatus("evaluating");
+  try {
+    const response = await fetch("/api/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ surnames: payload.surnames, candidates: payload.candidates }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || response.statusText);
+    payload.indexes.forEach((index) => {
+      const signature = signatures.get(index);
+      if (!signature || candidateSignature(index) !== signature) return;
+      candidateResults[index] = {
+        signature,
+        data: dataForCandidate(data, state.candidates[index]),
+      };
+    });
+    renderResults();
+    setStatus("saved");
+  } catch (error) {
+    setStatus("error");
+    analysisList.replaceChildren(errorBox(error.message));
+  } finally {
+    payload.indexes.forEach((index) => calculatingCandidates.delete(index));
+    refreshCalculateButtons();
+  }
+}
+
 function candidatePayload(index) {
   const candidate = state.candidates[index];
   if (!candidate) return null;
@@ -335,6 +371,38 @@ function candidatePayload(index) {
     return null;
   }
   return { surnames, candidates: [normalizedCandidate] };
+}
+
+function existingCandidatesPayload() {
+  const surnames = completeSurnames();
+  if (!surnames.length) return null;
+  const indexes = [];
+  const candidates = [];
+  state.candidates.forEach((candidate, index) => {
+    const normalizedCandidate = {
+      text: candidate.text.trim(),
+      reading: candidate.reading.trim(),
+    };
+    if (!normalizedCandidate.text || !normalizedCandidate.reading || !canCalculateCandidate(index)) return;
+    indexes.push(index);
+    candidates.push(normalizedCandidate);
+  });
+  return indexes.length ? { surnames, candidates, indexes } : null;
+}
+
+function completeSurnames() {
+  return state.surnames
+    .filter((item) => item.text.trim() && item.reading.trim())
+    .map((item) => ({ text: item.text.trim(), reading: item.reading.trim() }));
+}
+
+function dataForCandidate(data, candidate) {
+  return {
+    ...data,
+    candidates: data.candidates.filter((item) => item.text === candidate.text.trim()),
+    results: data.results.filter((item) => item.candidate === candidate.text.trim()),
+    analysis: data.analysis.filter((item) => item.candidate === candidate.text.trim()),
+  };
 }
 
 function candidateSignature(index) {
@@ -631,6 +699,7 @@ async function importJson(event) {
     saveState();
     renderAll();
     setStatus("imported");
+    calculateExistingCandidates();
   } catch (error) {
     setStatus("error");
   } finally {
