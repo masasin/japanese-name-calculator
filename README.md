@@ -7,18 +7,15 @@ This folder contains a local FastAPI web app and Python calculator for Japanese 
 - `name_fortune.py`: command-line calculator.
 - `main.py`: FastAPI app.
 - `static/`: single-page browser UI.
-- `data/kanjivg.xml.gz`: downloaded KanjiVG source data.
-- `data/stroke_cache.json`: generated stroke counts from KanjiVG stroke paths.
-- `data/kanjidic2.xml.gz`: downloaded KANJIDIC2 source data.
-- `data/kanji_cache.json`: generated kanji readings and meanings from KANJIDIC2.
-- `data/ja_meanings_cache.json`: generated Japanese meaning cache from Japanese Wiktionary.
-- `data/score_table.json`: generated public 1-81 score-label table.
+- `scripts/update_sources.py`: downloads source files and rebuilds generated data.
+- `data/sources/`: downloaded source files for KanjiVG, KANJIDIC2, and Japanese Wiktionary.
+- `data/generated/naming.sqlite`: generated local runtime database.
 
 ## Sources
 
 - KanjiVG: primary stroke source for kanji and kana. The tool counts unique stroke path IDs per Unicode character.
 - KANJIDIC2 / EDRDG: kanji meanings, readings, and metadata.
-- Japanese Wiktionary: Japanese kanji meanings, cached locally after lookup.
+- Japanese Wiktionary dump: Japanese kanji meanings extracted locally from the downloaded dump.
 - fortune.netoff.co.jp: public 1-81 score labels. These are not Benesse/Tamahiyo proprietary labels or prose.
 
 ## Usage
@@ -56,7 +53,13 @@ uv run python ~/Documents/naming/name_fortune.py \
 Refresh or build local data:
 
 ```bash
-uv run python ~/Documents/naming/name_fortune.py --ensure-data
+uv run python ~/Documents/naming/scripts/update_sources.py --all
+```
+
+Rebuild from already downloaded sources:
+
+```bash
+uv run python ~/Documents/naming/scripts/update_sources.py --build
 ```
 
 Run basic checks:

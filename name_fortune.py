@@ -13,12 +13,13 @@ result is not a copy of any one site's proprietary prose.
 from __future__ import annotations
 
 import argparse
+import bz2
 import gzip
 import html
 import json
 import re
+import sqlite3
 import sys
-import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -28,18 +29,18 @@ from typing import Any, Iterable
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
+SOURCE_DIR = DATA_DIR / "sources"
+GENERATED_DIR = DATA_DIR / "generated"
 
 KANJIDIC_URL = "https://www.edrdg.org/kanjidic/kanjidic2.xml.gz"
 KANJIVG_RELEASE_API = "https://api.github.com/repos/KanjiVG/kanjivg/releases/latest"
 SCORE_TABLE_URL = "https://fortune.netoff.co.jp/seimei/kichiku/"
-WIKTIONARY_API_URL = "https://ja.wiktionary.org/w/api.php"
+JAWIKTIONARY_DUMP_URL = "https://dumps.wikimedia.org/jawiktionary/latest/jawiktionary-latest-pages-articles.xml.bz2"
 
-KANJIVG_GZ = DATA_DIR / "kanjivg.xml.gz"
-STROKE_CACHE = DATA_DIR / "stroke_cache.json"
-KANJIDIC_GZ = DATA_DIR / "kanjidic2.xml.gz"
-KANJI_CACHE = DATA_DIR / "kanji_cache.json"
-SCORES_CACHE = DATA_DIR / "score_table.json"
-JA_MEANINGS_CACHE = DATA_DIR / "ja_meanings_cache.json"
+KANJIVG_GZ = SOURCE_DIR / "kanjivg.xml.gz"
+KANJIDIC_GZ = SOURCE_DIR / "kanjidic2.xml.gz"
+JAWIKTIONARY_BZ2 = SOURCE_DIR / "jawiktionary-pages-articles.xml.bz2"
+SQLITE_DB = GENERATED_DIR / "naming.sqlite"
 
 SMALL_KANA_TO_FULL = str.maketrans(
     "ぁぃぅぇぉゃゅょゎっァィゥェォャュョヮッヶヵ",
@@ -75,25 +76,29 @@ def text_from_html(raw: bytes) -> str:
 
 
 def ensure_data() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not SQLITE_DB.exists():
+        update_sources(download=True, build=True)
 
-    if not KANJIVG_GZ.exists():
+
+def download_sources(force: bool = False) -> None:
+    SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+    if force or not KANJIVG_GZ.exists():
         download_kanjivg()
-
-    if not STROKE_CACHE.exists():
-        build_stroke_cache()
-
-    if not KANJIDIC_GZ.exists():
+    if force or not KANJIDIC_GZ.exists():
         KANJIDIC_GZ.write_bytes(fetch_url(KANJIDIC_URL))
+    if force or not JAWIKTIONARY_BZ2.exists():
+        JAWIKTIONARY_BZ2.write_bytes(fetch_url(JAWIKTIONARY_DUMP_URL))
 
-    if not KANJI_CACHE.exists():
-        build_kanji_cache()
 
-    if not SCORES_CACHE.exists():
-        build_score_cache()
+def update_sources(download: bool = True, build: bool = True, force_download: bool = False) -> None:
+    if download:
+        download_sources(force=force_download)
+    if build:
+        build_sqlite_database()
 
 
 def download_kanjivg() -> None:
+    SOURCE_DIR.mkdir(parents=True, exist_ok=True)
     release = json.loads(fetch_url(KANJIVG_RELEASE_API).decode("utf-8"))
     assets = release.get("assets", [])
     for asset in assets:
@@ -105,7 +110,7 @@ def download_kanjivg() -> None:
     raise RuntimeError("Could not find a .xml.gz asset in the latest KanjiVG GitHub release.")
 
 
-def build_stroke_cache() -> None:
+def build_stroke_data() -> dict[str, int]:
     if not KANJIVG_GZ.exists():
         download_kanjivg()
 
@@ -137,22 +142,10 @@ def build_stroke_cache() -> None:
     if not strokes:
         raise RuntimeError("KanjiVG stroke cache build found no stroke paths.")
 
-    STROKE_CACHE.write_text(
-        json.dumps(
-            {
-                "source": KANJIVG_RELEASE_API,
-                "note": "Built by counting unique KanjiVG stroke path ids for each Unicode code point.",
-                "characters": strokes,
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
+    return strokes
 
 
-def build_kanji_cache() -> None:
+def build_kanji_data() -> dict[str, dict[str, object]]:
     if not KANJIDIC_GZ.exists():
         KANJIDIC_GZ.write_bytes(fetch_url(KANJIDIC_URL))
 
@@ -192,22 +185,10 @@ def build_kanji_cache() -> None:
             "meanings": meanings,
         }
 
-    KANJI_CACHE.write_text(
-        json.dumps(
-            {
-                "source": KANJIDIC_URL,
-                "note": "First stroke_count is used by default; alternate counts are kept.",
-                "characters": cache,
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
+    return cache
 
 
-def build_score_cache() -> None:
+def build_score_data() -> dict[str, str]:
     text = text_from_html(fetch_url(SCORE_TABLE_URL))
     scores: dict[str, str] = {}
     for num, label in re.findall(r"\b([1-9][0-9]?)\s+(大吉◎|吉○|小吉△|凶×|大凶[✕×])", text):
@@ -218,45 +199,187 @@ def build_score_cache() -> None:
     if len(scores) < 81:
         raise RuntimeError(f"Expected 81 score rows from {SCORE_TABLE_URL}; got {len(scores)}")
 
-    SCORES_CACHE.write_text(
-        json.dumps(
-            {
-                "source": SCORE_TABLE_URL,
-                "note": "Public 1-81 table; not Benesse/Tamahiyo proprietary grading.",
-                "scores": scores,
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
+    return scores
+
+
+def build_japanese_meaning_data(kanji: dict[str, dict[str, object]]) -> dict[str, list[str]]:
+    if not JAWIKTIONARY_BZ2.exists():
+        JAWIKTIONARY_BZ2.write_bytes(fetch_url(JAWIKTIONARY_DUMP_URL))
+
+    wanted = set(kanji)
+    extractor = JapaneseMeaningExtractor()
+    meanings: dict[str, list[str]] = {}
+
+    with bz2.open(JAWIKTIONARY_BZ2, "rb") as fh:
+        for _, page in ET.iterparse(fh, events=("end",)):
+            if page.tag.rsplit("}", 1)[-1] != "page":
+                continue
+            title = child_text(page, "title")
+            ns = child_text(page, "ns")
+            if ns == "0" and len(title) == 1 and title in wanted:
+                content = revision_text(page)
+                if content:
+                    meanings[title] = extractor.extract_meanings(content)
+            page.clear()
+    return meanings
+
+
+def child_text(parent: ET.Element, name: str) -> str:
+    for child in parent:
+        if child.tag.rsplit("}", 1)[-1] == name:
+            return child.text or ""
+    return ""
+
+
+def revision_text(page: ET.Element) -> str:
+    for item in page.iter():
+        if item.tag.rsplit("}", 1)[-1] == "text":
+            return item.text or ""
+    return ""
+
+
+def build_sqlite_database() -> None:
+    SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+
+    strokes = build_stroke_data()
+    kanji = build_kanji_data()
+    scores = build_score_data()
+    meanings_ja = build_japanese_meaning_data(kanji)
+
+    tmp_path = SQLITE_DB.with_suffix(".sqlite.tmp")
+    if tmp_path.exists():
+        tmp_path.unlink()
+
+    with sqlite3.connect(tmp_path) as db:
+        db.executescript(
+            """
+            CREATE TABLE metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE strokes (
+                character TEXT PRIMARY KEY,
+                strokes INTEGER NOT NULL
+            );
+            CREATE TABLE kanji (
+                character TEXT PRIMARY KEY,
+                strokes_json TEXT NOT NULL,
+                readings_json TEXT NOT NULL,
+                nanori_json TEXT NOT NULL,
+                meanings_en_json TEXT NOT NULL
+            );
+            CREATE TABLE scores (
+                number INTEGER PRIMARY KEY,
+                label TEXT NOT NULL
+            );
+            CREATE TABLE meanings_ja (
+                character TEXT PRIMARY KEY,
+                meanings_json TEXT NOT NULL
+            );
+            """
+        )
+        db.executemany(
+            "INSERT INTO metadata (key, value) VALUES (?, ?)",
+            [
+                ("kanjivg_source", KANJIVG_RELEASE_API),
+                ("kanjidic_source", KANJIDIC_URL),
+                ("score_source", SCORE_TABLE_URL),
+                ("jawiktionary_source", JAWIKTIONARY_DUMP_URL),
+                ("database_note", "Generated local SQLite data. Do not edit by hand."),
+            ],
+        )
+        db.executemany(
+            "INSERT INTO strokes (character, strokes) VALUES (?, ?)",
+            sorted(strokes.items()),
+        )
+        db.executemany(
+            """
+            INSERT INTO kanji
+                (character, strokes_json, readings_json, nanori_json, meanings_en_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    character,
+                    json.dumps(entry.get("strokes", []), ensure_ascii=False),
+                    json.dumps(entry.get("readings", []), ensure_ascii=False),
+                    json.dumps(entry.get("nanori", []), ensure_ascii=False),
+                    json.dumps(entry.get("meanings", []), ensure_ascii=False),
+                )
+                for character, entry in sorted(kanji.items())
+            ],
+        )
+        db.executemany(
+            "INSERT INTO scores (number, label) VALUES (?, ?)",
+            [(int(number), label) for number, label in sorted(scores.items(), key=lambda item: int(item[0]))],
+        )
+        db.executemany(
+            "INSERT INTO meanings_ja (character, meanings_json) VALUES (?, ?)",
+            [
+                (character, json.dumps(meanings, ensure_ascii=False))
+                for character, meanings in sorted(meanings_ja.items())
+            ],
+        )
+        db.commit()
+
+    tmp_path.replace(SQLITE_DB)
 
 
 def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def load_optional_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
-    if not path.exists():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
+def sqlite_rows(query: str, params: tuple[object, ...] = ()) -> list[sqlite3.Row]:
+    ensure_data()
+    with sqlite3.connect(SQLITE_DB) as db:
+        db.row_factory = sqlite3.Row
+        return list(db.execute(query, params))
+
+
+def source_metadata() -> dict[str, str]:
+    return {
+        row["key"]: row["value"]
+        for row in sqlite_rows("SELECT key, value FROM metadata")
+    }
 
 
 def kanji_data() -> dict[str, dict[str, object]]:
-    return load_json(KANJI_CACHE)["characters"]
+    return {
+        row["character"]: {
+            "strokes": json.loads(row["strokes_json"]),
+            "readings": json.loads(row["readings_json"]),
+            "nanori": json.loads(row["nanori_json"]),
+            "meanings": json.loads(row["meanings_en_json"]),
+        }
+        for row in sqlite_rows(
+            """
+            SELECT character, strokes_json, readings_json, nanori_json, meanings_en_json
+            FROM kanji
+            """
+        )
+    }
 
 
 def stroke_data() -> dict[str, int]:
-    return load_json(STROKE_CACHE)["characters"]
+    return {
+        row["character"]: int(row["strokes"])
+        for row in sqlite_rows("SELECT character, strokes FROM strokes")
+    }
 
 
 def score_data() -> dict[str, str]:
-    return load_json(SCORES_CACHE)["scores"]
+    return {
+        str(row["number"]): row["label"]
+        for row in sqlite_rows("SELECT number, label FROM scores")
+    }
 
 
 def ja_meaning_data() -> dict[str, list[str]]:
-    return load_optional_json(JA_MEANINGS_CACHE, {"source": WIKTIONARY_API_URL, "characters": {}})["characters"]
+    return {
+        row["character"]: json.loads(row["meanings_json"])
+        for row in sqlite_rows("SELECT character, meanings_json FROM meanings_ja")
+    }
 
 
 def character_strokes(ch: str, strokes: dict[str, int]) -> int:
@@ -272,32 +395,7 @@ def strokes_for_text(text: str, strokes: dict[str, int]) -> list[int]:
     return [character_strokes(ch, strokes) for ch in text]
 
 
-class JapaneseMeaningSource:
-    source_url = WIKTIONARY_API_URL
-
-    def fetch(self, character: str) -> list[str]:
-        query = urllib.parse.urlencode(
-            {
-                "action": "query",
-                "prop": "revisions",
-                "titles": character,
-                "rvprop": "content",
-                "rvslots": "main",
-                "format": "json",
-                "formatversion": "2",
-            }
-        )
-        raw = fetch_url(f"{self.source_url}?{query}")
-        data = json.loads(raw.decode("utf-8"))
-        pages = data.get("query", {}).get("pages", [])
-        if not pages or pages[0].get("missing"):
-            return []
-        revisions = pages[0].get("revisions", [])
-        if not revisions:
-            return []
-        content = revisions[0].get("slots", {}).get("main", {}).get("content", "")
-        return self.extract_meanings(content)
-
+class JapaneseMeaningExtractor:
     def extract_meanings(self, content: str) -> list[str]:
         section = self._extract_section(content, "意義")
         if not section:
@@ -334,29 +432,6 @@ class JapaneseMeaningSource:
         text = re.sub(r"'{2,}", "", text)
         text = re.sub(r"\s+", " ", text)
         return text.strip(" 。、;；")
-
-
-def ensure_japanese_meanings(characters: Iterable[str], kanji: dict[str, dict[str, object]]) -> dict[str, list[str]]:
-    cache = load_optional_json(JA_MEANINGS_CACHE, {"source": WIKTIONARY_API_URL, "characters": {}})
-    cached_characters = cache.setdefault("characters", {})
-    source = JapaneseMeaningSource()
-    changed = False
-
-    for ch in sorted(set(characters)):
-        if ch not in kanji or ch in cached_characters:
-            continue
-        try:
-            cached_characters[ch] = source.fetch(ch)
-        except Exception:
-            cached_characters[ch] = []
-        changed = True
-
-    if changed:
-        JA_MEANINGS_CACHE.write_text(
-            json.dumps(cache, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-    return cached_characters
 
 
 def element_from_strokes(strokes: int) -> str:
@@ -600,18 +675,18 @@ def evaluate_structured(surnames: Iterable[Surname], given_names: Iterable[Given
 
     surname_values = list(surnames)
     given_values = list(given_names)
-    meaning_characters = "".join(item.text for item in surname_values) + "".join(item.kanji for item in given_values)
-    meanings_ja = ensure_japanese_meanings(meaning_characters, kanji)
+    meanings_ja = ja_meaning_data()
+    metadata = source_metadata()
     response: dict[str, Any] = {
         "surnames": [],
         "candidates": [],
         "results": [],
         "analysis": [],
         "sources": {
-            "strokes": load_json(STROKE_CACHE).get("source"),
-            "kanji": load_json(KANJI_CACHE).get("source"),
-            "scores": load_json(SCORES_CACHE).get("source"),
-            "meanings_ja": WIKTIONARY_API_URL,
+            "strokes": metadata.get("kanjivg_source"),
+            "kanji": metadata.get("kanjidic_source"),
+            "scores": metadata.get("score_source"),
+            "meanings_ja": metadata.get("jawiktionary_source"),
         },
     }
 
@@ -795,7 +870,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ensure_data:
         ensure_data()
         if not args.sample and not args.surname and not args.given:
-            print(f"Data ready in {DATA_DIR}")
+            print(f"Data ready in {SQLITE_DB}")
             return 0
 
     if args.sample:

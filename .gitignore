@@ -6,3 +6,5 @@ __pycache__/
 # Generated data caches
 data/*_cache.json
 data/score_table.json
+data/sources/
+data/generated/
