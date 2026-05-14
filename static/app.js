@@ -484,13 +484,14 @@ function renderResults() {
 function candidateEditor(candidate, evaluatedCandidate, index) {
   const wrap = document.createElement("div");
   wrap.className = "candidate-editor";
-  const triggerCalculation = (event) => {
+  const triggerCalculation = (event, triggerOnTab) => {
     if (event.key !== "Enter" && event.key !== "Tab") return;
+    if (event.key === "Tab" && !triggerOnTab) return;
     if (event.key === "Enter") event.preventDefault();
     if (canCalculateCandidate(index)) calculateCandidate(index);
   };
-  wrap.appendChild(field("candidateText", t("text"), candidate.text, (value) => updateEntry("candidate", index, "text", value), false, triggerCalculation));
-  wrap.appendChild(field("candidateReading", t("reading"), candidate.reading, (value) => updateEntry("candidate", index, "reading", value), false, triggerCalculation));
+  wrap.appendChild(field("candidateText", t("text"), candidate.text, (value) => updateEntry("candidate", index, "text", value), false, (event) => triggerCalculation(event, false)));
+  wrap.appendChild(field("candidateReading", t("reading"), candidate.reading, (value) => updateEntry("candidate", index, "reading", value), false, (event) => triggerCalculation(event, true)));
 
   const actions = document.createElement("div");
   actions.className = "candidate-actions";
