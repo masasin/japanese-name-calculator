@@ -2,3 +2,7 @@ __pycache__/
 *.py[cod]
 .agents/
 .venv/
+
+# Generated data caches
+data/*_cache.json
+data/score_table.json
