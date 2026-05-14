@@ -184,6 +184,8 @@ const displayStrategies = {
       const parts = [];
       if (item.meanings_ja && item.meanings_ja.length) {
         parts.push(`${t("meanings")}: ${item.meanings_ja.slice(0, 3).join("、")}`);
+      } else if (item.meanings_en && item.meanings_en.length) {
+        parts.push(`${t("meanings")}: ${item.meanings_en.slice(0, 3).join("; ")}`);
       }
       if (item.nanori && item.nanori.length) {
         parts.push(`${t("nanoriLabel")}: ${item.nanori.slice(0, 4).join("、")}`);
