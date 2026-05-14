@@ -517,6 +517,7 @@ function scoreSymbol(label) {
     symbol.className = "score-symbol score-symbol-circle";
   } else {
     symbol.className = "score-symbol score-symbol-triangle";
+    symbol.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><polygon points="12 3.5 21 20.5 3 20.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" /></svg>';
   }
   return symbol;
 }

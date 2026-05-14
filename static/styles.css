@@ -303,6 +303,8 @@ thead th {
   align-items: center;
   justify-content: center;
   position: relative;
+  box-sizing: border-box;
+  flex: 0 0 var(--score-symbol-size);
   width: var(--score-symbol-size);
   height: var(--score-symbol-size);
   margin-left: 2px;
@@ -310,11 +312,19 @@ thead th {
   vertical-align: -0.12em;
 }
 
+.score-symbol svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
 .score-symbol-circle::before,
 .score-symbol-double::before,
 .score-symbol-double::after {
   content: "";
   display: block;
+  box-sizing: border-box;
   border: 2px solid currentColor;
   border-radius: 50%;
 }
@@ -332,13 +342,7 @@ thead th {
 }
 
 .score-symbol-triangle::before {
-  content: "";
-  display: block;
-  width: 0;
-  height: 0;
-  border-left: calc(var(--score-symbol-size) * 0.5) solid transparent;
-  border-right: calc(var(--score-symbol-size) * 0.5) solid transparent;
-  border-bottom: var(--score-symbol-size) solid currentColor;
+  content: none;
 }
 
 .flags {
