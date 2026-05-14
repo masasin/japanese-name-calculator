@@ -124,6 +124,8 @@ const defaultState = {
 let state = loadState();
 let candidateResults = state.candidates.map(() => null);
 const calculatingCandidates = new Set();
+const initialCalculationIndexes = existingCandidateIndexes();
+initialCalculationIndexes.forEach((index) => calculatingCandidates.add(index));
 
 const surnameList = document.getElementById("surnameList");
 const resultsWrap = document.getElementById("resultsWrap");
@@ -156,7 +158,7 @@ document.getElementById("importButton").addEventListener("click", () => importFi
 importFile.addEventListener("change", importJson);
 
 renderAll();
-calculateExistingCandidates();
+calculateExistingCandidates(initialCalculationIndexes);
 
 function t(key) {
   return i18n[state.language][key] || i18n.en[key] || key;
@@ -322,8 +324,8 @@ async function calculateCandidate(index) {
   }
 }
 
-async function calculateExistingCandidates() {
-  const payload = existingCandidatesPayload();
+async function calculateExistingCandidates(indexes = existingCandidateIndexes()) {
+  const payload = existingCandidatesPayload(indexes);
   if (!payload) return;
 
   const signatures = new Map(payload.indexes.map((index) => [index, candidateSignature(index)]));
@@ -373,21 +375,34 @@ function candidatePayload(index) {
   return { surnames, candidates: [normalizedCandidate] };
 }
 
-function existingCandidatesPayload() {
+function existingCandidateIndexes() {
+  return state.candidates
+    .map((_, index) => index)
+    .filter((index) => {
+      const signature = candidateSignature(index);
+      return Boolean(signature && candidateResults[index]?.signature !== signature);
+    });
+}
+
+function existingCandidatesPayload(indexes) {
   const surnames = completeSurnames();
   if (!surnames.length) return null;
-  const indexes = [];
+  const selectedIndexes = [];
   const candidates = [];
-  state.candidates.forEach((candidate, index) => {
+  indexes.forEach((index) => {
+    const candidate = state.candidates[index];
+    if (!candidate) return;
     const normalizedCandidate = {
       text: candidate.text.trim(),
       reading: candidate.reading.trim(),
     };
-    if (!normalizedCandidate.text || !normalizedCandidate.reading || !canCalculateCandidate(index)) return;
-    indexes.push(index);
+    const signature = candidateSignature(index);
+    if (!normalizedCandidate.text || !normalizedCandidate.reading) return;
+    if (!signature || candidateResults[index]?.signature === signature) return;
+    selectedIndexes.push(index);
     candidates.push(normalizedCandidate);
   });
-  return indexes.length ? { surnames, candidates, indexes } : null;
+  return selectedIndexes.length ? { surnames, candidates, indexes: selectedIndexes } : null;
 }
 
 function completeSurnames() {
@@ -696,10 +711,12 @@ async function importJson(event) {
     const text = await file.text();
     state = normalizeState(JSON.parse(text));
     candidateResults = state.candidates.map(() => null);
+    const indexes = existingCandidateIndexes();
+    indexes.forEach((index) => calculatingCandidates.add(index));
     saveState();
     renderAll();
     setStatus("imported");
-    calculateExistingCandidates();
+    calculateExistingCandidates(indexes);
   } catch (error) {
     setStatus("error");
   } finally {
