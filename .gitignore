@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .agents/
 .venv/
+.env
 
 # Generated data caches
 data/*_cache.json
