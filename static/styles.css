@@ -157,6 +157,15 @@ main {
   min-height: 38px;
 }
 
+.button.compact {
+  padding-inline: 10px;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .button.primary {
   background: var(--primary);
   color: var(--primary-ink);
@@ -232,6 +241,12 @@ thead th {
 
 .candidate-editor {
   display: grid;
+  gap: 8px;
+}
+
+.candidate-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -395,5 +410,9 @@ thead th {
 
   .button {
     width: 100%;
+  }
+
+  .candidate-actions .button {
+    flex: 1;
   }
 }

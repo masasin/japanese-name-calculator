@@ -17,6 +17,7 @@ const i18n = {
     analysis: "Analysis",
     text: "Written form",
     reading: "Reading",
+    calculate: "Calculate",
     remove: "Remove",
     candidate: "Candidate",
     strokes: "strokes",
@@ -68,6 +69,7 @@ const i18n = {
     analysis: "短評",
     text: "表記",
     reading: "ふりがな",
+    calculate: "計算",
     remove: "削除",
     candidate: "候補名",
     strokes: "画",
@@ -120,8 +122,8 @@ const defaultState = {
 };
 
 let state = loadState();
-let latestResult = null;
-let evaluateTimer = null;
+let candidateResults = state.candidates.map(() => null);
+const calculatingCandidates = new Set();
 
 const surnameList = document.getElementById("surnameList");
 const resultsWrap = document.getElementById("resultsWrap");
@@ -144,6 +146,7 @@ document.getElementById("addSurname").addEventListener("click", () => {
 
 document.getElementById("addCandidate").addEventListener("click", () => {
   state.candidates.push({ text: "", reading: "" });
+  candidateResults.push(null);
   saveState();
   renderAll();
 });
@@ -232,7 +235,7 @@ function renderAll() {
   });
   document.getElementById("languageToggle").textContent = state.language === "en" ? "日本語" : "English";
   renderSurnames();
-  scheduleEvaluate();
+  renderResults();
 }
 
 function renderSurnames() {
@@ -269,7 +272,7 @@ function entryRow({ type, index, values }) {
   return row;
 }
 
-function field(name, labelText, value, onInput, multiline = false) {
+function field(name, labelText, value, onInput, multiline = false, onKeyDown = null) {
   const wrapper = document.createElement("div");
   wrapper.className = "field";
   const label = document.createElement("label");
@@ -278,6 +281,7 @@ function field(name, labelText, value, onInput, multiline = false) {
   input.name = name;
   input.value = value || "";
   input.addEventListener("input", () => onInput(input.value));
+  if (onKeyDown) input.addEventListener("keydown", onKeyDown);
   wrapper.append(label, input);
   return wrapper;
 }
@@ -286,30 +290,16 @@ function updateEntry(type, index, key, value) {
   const collection = type === "surname" ? state.surnames : state.candidates;
   collection[index][key] = value;
   saveState();
-  scheduleEvaluate();
+  refreshCalculateButtons();
 }
 
-function validInputs() {
-  return {
-    surnames: state.surnames.filter((item) => item.text.trim() && item.reading.trim()),
-    candidates: state.candidates.filter((item) => item.text.trim() && item.reading.trim()),
-  };
-}
+async function calculateCandidate(index) {
+  const payload = candidatePayload(index);
+  if (!payload || !canCalculateCandidate(index)) return;
 
-function scheduleEvaluate() {
-  clearTimeout(evaluateTimer);
-  evaluateTimer = setTimeout(evaluateNow, 180);
-}
-
-async function evaluateNow() {
-  const payload = validInputs();
-  if (!payload.surnames.length || !payload.candidates.length) {
-    latestResult = null;
-    renderResults();
-    setStatus("");
-    return;
-  }
-
+  const signature = candidateSignature(index);
+  calculatingCandidates.add(index);
+  refreshCalculateButtons();
   setStatus("evaluating");
   try {
     const response = await fetch("/api/evaluate", {
@@ -319,64 +309,63 @@ async function evaluateNow() {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || response.statusText);
-    latestResult = data;
+    candidateResults[index] = { signature, data };
     renderResults();
     setStatus("saved");
   } catch (error) {
-    latestResult = null;
-    resultsWrap.replaceChildren();
-    analysisList.replaceChildren(errorBox(error.message));
-    emptyState.hidden = true;
     setStatus("error");
+    analysisList.replaceChildren(errorBox(error.message));
+  } finally {
+    calculatingCandidates.delete(index);
+    refreshCalculateButtons();
   }
+}
+
+function candidatePayload(index) {
+  const candidate = state.candidates[index];
+  if (!candidate) return null;
+  const surnames = state.surnames
+    .filter((item) => item.text.trim() && item.reading.trim())
+    .map((item) => ({ text: item.text.trim(), reading: item.reading.trim() }));
+  const normalizedCandidate = {
+    text: candidate.text.trim(),
+    reading: candidate.reading.trim(),
+  };
+  if (!normalizedCandidate.text || !normalizedCandidate.reading || !surnames.length) {
+    return null;
+  }
+  return { surnames, candidates: [normalizedCandidate] };
+}
+
+function candidateSignature(index) {
+  const payload = candidatePayload(index);
+  return payload ? JSON.stringify(payload) : "";
+}
+
+function canCalculateCandidate(index) {
+  if (calculatingCandidates.has(index)) return false;
+  const signature = candidateSignature(index);
+  return Boolean(signature && candidateResults[index]?.signature !== signature);
+}
+
+function refreshCalculateButtons() {
+  document.querySelectorAll("[data-candidate-calculate]").forEach((button) => {
+    const index = Number(button.dataset.candidateIndex);
+    button.disabled = !canCalculateCandidate(index);
+  });
 }
 
 function renderResults() {
   resultsWrap.replaceChildren();
   analysisList.replaceChildren();
 
-  if (!latestResult || !latestResult.results.length) {
-    if (state.candidates.length) {
-      emptyState.hidden = true;
-      renderCandidateEditTable();
-    } else {
-      emptyState.hidden = false;
-    }
+  if (!state.candidates.length) {
+    emptyState.hidden = false;
     analysisList.appendChild(emptyMessage(t("noAnalysis")));
     return;
   }
   emptyState.hidden = true;
 
-  const table = document.createElement("table");
-  const thead = document.createElement("thead");
-  const headerRow = document.createElement("tr");
-  headerRow.appendChild(th(t("candidate")));
-  latestResult.surnames.forEach((surname) => {
-    headerRow.appendChild(th(`${surname.text} (${surname.reading})`));
-  });
-  thead.appendChild(headerRow);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-  state.candidates.forEach((candidate, index) => {
-    const row = document.createElement("tr");
-    const nameCell = document.createElement("td");
-    nameCell.className = "name-cell";
-    const evaluatedCandidate = latestResult.candidates.find((item) => item.text === candidate.text);
-    nameCell.appendChild(candidateEditor(candidate, evaluatedCandidate, index));
-    row.appendChild(nameCell);
-    latestResult.surnames.forEach((surname) => {
-      const result = latestResult.results.find((item) => item.candidate === candidate.text && item.surname === surname.text);
-      row.appendChild(resultCell(result));
-    });
-    tbody.appendChild(row);
-  });
-  table.appendChild(tbody);
-  resultsWrap.appendChild(table);
-  renderAnalysis();
-}
-
-function renderCandidateEditTable() {
   const table = document.createElement("table");
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
@@ -392,30 +381,54 @@ function renderCandidateEditTable() {
     const row = document.createElement("tr");
     const nameCell = document.createElement("td");
     nameCell.className = "name-cell";
-    nameCell.appendChild(candidateEditor(candidate, null, index));
+    const resultData = candidateResults[index]?.signature === candidateSignature(index) ? candidateResults[index].data : null;
+    const evaluatedCandidate = resultData?.candidates.find((item) => item.text === candidate.text) || null;
+    nameCell.appendChild(candidateEditor(candidate, evaluatedCandidate, index));
     row.appendChild(nameCell);
-    state.surnames.forEach(() => row.appendChild(textCell("")));
+    state.surnames.forEach((surname) => {
+      const result = resultData?.results.find((item) => item.candidate === candidate.text && item.surname === surname.text);
+      row.appendChild(resultCell(result));
+    });
     tbody.appendChild(row);
   });
   table.appendChild(tbody);
   resultsWrap.appendChild(table);
+  renderAnalysis();
 }
 
 function candidateEditor(candidate, evaluatedCandidate, index) {
   const wrap = document.createElement("div");
   wrap.className = "candidate-editor";
-  wrap.appendChild(field("candidateText", t("text"), candidate.text, (value) => updateEntry("candidate", index, "text", value)));
-  wrap.appendChild(field("candidateReading", t("reading"), candidate.reading, (value) => updateEntry("candidate", index, "reading", value)));
+  const triggerCalculation = (event) => {
+    if (event.key !== "Enter" && event.key !== "Tab") return;
+    if (event.key === "Enter") event.preventDefault();
+    if (canCalculateCandidate(index)) calculateCandidate(index);
+  };
+  wrap.appendChild(field("candidateText", t("text"), candidate.text, (value) => updateEntry("candidate", index, "text", value), false, triggerCalculation));
+  wrap.appendChild(field("candidateReading", t("reading"), candidate.reading, (value) => updateEntry("candidate", index, "reading", value), false, triggerCalculation));
+
+  const actions = document.createElement("div");
+  actions.className = "candidate-actions";
+  const calculate = document.createElement("button");
+  calculate.type = "button";
+  calculate.className = "button secondary compact";
+  calculate.textContent = t("calculate");
+  calculate.dataset.candidateCalculate = "true";
+  calculate.dataset.candidateIndex = String(index);
+  calculate.disabled = !canCalculateCandidate(index);
+  calculate.addEventListener("click", () => calculateCandidate(index));
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "button danger";
   remove.textContent = t("remove");
   remove.addEventListener("click", () => {
     state.candidates.splice(index, 1);
+    candidateResults.splice(index, 1);
     saveState();
     renderAll();
   });
-  wrap.appendChild(remove);
+  actions.append(calculate, remove);
+  wrap.appendChild(actions);
   if (evaluatedCandidate) {
     const chars = document.createElement("div");
     chars.className = "char-list";
@@ -486,11 +499,15 @@ function resultCell(result) {
 }
 
 function renderAnalysis() {
-  if (!latestResult.analysis.length) {
+  const analysis = candidateResults
+    .flatMap((item, index) => item?.signature === candidateSignature(index) ? item.data.analysis || [] : [])
+    .sort((a, b) => b.points - a.points);
+
+  if (!analysis.length) {
     analysisList.appendChild(emptyMessage(t("noAnalysis")));
     return;
   }
-  latestResult.analysis.forEach((item, index) => {
+  analysis.forEach((item, index) => {
     const card = document.createElement("div");
     card.className = `analysis-card ${item.level}`;
     const title = document.createElement("div");
@@ -610,6 +627,7 @@ async function importJson(event) {
   try {
     const text = await file.text();
     state = normalizeState(JSON.parse(text));
+    candidateResults = state.candidates.map(() => null);
     saveState();
     renderAll();
     setStatus("imported");
