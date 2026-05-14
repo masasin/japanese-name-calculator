@@ -34,6 +34,64 @@ http://127.0.0.1:8000
 
 The browser UI stores surnames and candidates in local storage and supports JSON export/import.
 
+## Docker Compose deployment
+
+Build and start the app on a home server:
+
+```bash
+mkdir -p data/sources data/generated
+docker compose up -d --build
+```
+
+Then open:
+
+```text
+http://SERVER_IP:8000
+```
+
+The container starts FastAPI with uvicorn on `0.0.0.0:8000`. The Compose file exposes host port `8000` by default. To use a different host port:
+
+```bash
+HOST_PORT=8080 docker compose up -d --build
+```
+
+First startup runs:
+
+```bash
+uv run --no-sync python name_fortune.py --ensure-data
+```
+
+That command downloads missing source dumps and builds `data/generated/naming.sqlite` only when the generated database is absent. Later restarts reuse the bind-mounted data. The Compose file persists:
+
+- `./data/sources` -> `/app/data/sources`
+- `./data/generated` -> `/app/data/generated`
+
+The first run can take several minutes because the app waits for the source downloads and database build before serving requests.
+
+Rebuild the generated database from already downloaded sources:
+
+```bash
+docker compose run --rm naming uv run --no-sync python scripts/update_sources.py --build
+```
+
+Download missing sources and rebuild:
+
+```bash
+docker compose run --rm naming uv run --no-sync python scripts/update_sources.py --all
+```
+
+Force fresh source downloads and rebuild:
+
+```bash
+docker compose run --rm naming uv run --no-sync python scripts/update_sources.py --all --force-download
+```
+
+Rebuild the image after source code changes:
+
+```bash
+docker compose up -d --build
+```
+
 Run the command-line sample set:
 
 ```bash

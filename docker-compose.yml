@@ -1,0 +1,11 @@
+services:
+  naming:
+    build: .
+    image: japanese-name-calculator:latest
+    container_name: japanese-name-calculator
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    volumes:
+      - ./data/sources:/app/data/sources
+      - ./data/generated:/app/data/generated
+    restart: unless-stopped

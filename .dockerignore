@@ -1,0 +1,19 @@
+.git
+.agents
+.codex
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+.env
+
+# Runtime data is persisted through docker-compose bind mounts.
+data/sources/
+data/generated/
+data/*_cache.json
+data/score_table.json
+*.sqlite
+*.sqlite.tmp
