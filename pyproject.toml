@@ -3,6 +3,7 @@ name = "naming"
 version = "0.1.0"
 description = "Local FastAPI web app for comparing Japanese name candidates."
 readme = "README.md"
+license = "BSD-2-Clause"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.136.1",

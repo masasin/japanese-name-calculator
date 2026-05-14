@@ -137,6 +137,10 @@ The score labels are from a public 81-number table, so some labels differ from T
 
 The web UI displays `×` score labels as `△` to match the Tamahiyo-style presentation, while the internal point calculation keeps the public table's original score weights.
 
+## License
+
+BSD-2-Clause. See `LICENSE`.
+
 ## 日本語
 
 このフォルダには、日本人名の五格チェックを行うローカル FastAPI Web アプリと Python 計算ツールが含まれています。
@@ -273,3 +277,7 @@ node --check static/app.js
 点数ラベルは公開されている 81 数表に基づいているため、計算された格数が一致していても、たまひよの表示と異なる場合があります。
 
 Web UI は、たまひよ風の表示に合わせて `×` の点数ラベルを `△` として表示します。内部の点数計算では、公開表の元の点数重みを維持しています。
+
+### ライセンス
+
+BSD-2-Clause です。詳しくは `LICENSE` を参照してください。
